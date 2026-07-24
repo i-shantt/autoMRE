@@ -82,8 +82,11 @@ def render_markdown_table(rows: List[Dict]) -> str:
     lines = [header]
     for r in rows:
         s = r["summary"]
+        # If the LLM backend fell back to heuristic, mark the row so
+        # the reader doesn't confuse fallback data with real LLM data.
+        tag = " ⚠️FALLBACK" if r.get("fallback") else ""
         lines.append(
-            f"| {r['label']} "
+            f"| {r['label']}{tag} "
             f"| {s['n_success']}/{s['n_bugs']} "
             f"| {s['median_file_reduction']*100:.1f}% "
             f"| {s['median_line_reduction']*100:.1f}% "
@@ -101,7 +104,8 @@ def maybe_render_chart(rows: List[Dict], output_path: Path) -> Optional[Path]:
     except ImportError:
         return None
 
-    labels = [r["label"] for r in rows]
+    labels = [(r["label"] + "\n(fallback)") if r.get("fallback")
+              else r["label"] for r in rows]
     line_red = [r["summary"]["median_line_reduction"] * 100 for r in rows]
     queries = [r["summary"]["median_queries"] for r in rows]
     latency = [r["summary"]["median_time_seconds"] for r in rows]
@@ -166,12 +170,16 @@ def main() -> int:
             "runs": [asdict(r) for r in results],
         }, indent=2))
 
+        # Detect fallback: if any run has fallback_active=True, the whole
+        # config's numbers are heuristic-in-disguise.
+        fell_back = any(r.fallback_active for r in results)
         all_rows.append({
             "key": key,
             "label": label,
             "prioritizer": prioritizer,
             "model": model,
             "summary": summary,
+            "fallback": fell_back,
         })
 
     if not all_rows:

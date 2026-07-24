@@ -58,6 +58,7 @@ class RunResult:
     total_queries: int
     time_seconds: float
     error: Optional[str] = None      # populated if the run failed outright
+    fallback_active: bool = False    # LLM requested but backend unavailable
 
     @property
     def file_reduction_rate(self) -> float:
@@ -84,12 +85,32 @@ def _still_reproduces(work_dir: Path, cmd: List[str],
     return expected_error_type in output
 
 
-def run_one(bug: BenchmarkBug, prioritizer_kind: str, model: Optional[str],
-            verbose: bool = False) -> RunResult:
-    """Reduce a single benchmark bug and return metrics."""
-    prioritizer = build_prioritizer(kind=prioritizer_kind, model=model,
-                                    verbose=verbose)
+def _is_fallback(prioritizer, requested_kind: str) -> bool:
+    """Did build_prioritizer silently fall back to heuristic?
 
+    build_prioritizer() returns a HeuristicPrioritizer when the LLM
+    backend can't be built (gated model, missing token, missing extras).
+    That's convenient but silently poisons benchmark data — a "fallback"
+    row is indistinguishable from a real "heuristic" row unless we tag
+    it. Detect the mismatch here.
+    """
+    if requested_kind != "llm":
+        return False
+    # HeuristicPrioritizer has no _backend attribute; LLMPrioritizer does.
+    return not hasattr(prioritizer, "_backend")
+
+
+def run_one(bug: BenchmarkBug, prioritizer, verbose: bool = False,
+            prioritizer_kind: str = "heuristic",
+            model: Optional[str] = None,
+            fallback_active: bool = False) -> RunResult:
+    """Reduce a single benchmark bug using a pre-built prioritizer.
+
+    The prioritizer is passed in (not constructed here) so that the LLM
+    backend loads its weights ONCE per config, not once per bug. Loading
+    a 3B model takes 10-30s on MPS; doing it 3x per benchmark was
+    inflating medium's wall-time numbers by an order of magnitude.
+    """
     with tempfile.TemporaryDirectory(prefix="ampl_bench_") as tmp:
         work_dir = Path(tmp) / bug.project_dir.name
         shutil.copytree(bug.project_dir, work_dir)
@@ -109,6 +130,7 @@ def run_one(bug: BenchmarkBug, prioritizer_kind: str, model: Optional[str],
                 original_lines=0, final_lines=0,
                 total_queries=0, time_seconds=0.0,
                 error=f"{type(exc).__name__}: {exc}",
+                fallback_active=fallback_active,
             )
 
         success = _still_reproduces(
@@ -126,21 +148,41 @@ def run_one(bug: BenchmarkBug, prioritizer_kind: str, model: Optional[str],
             final_lines=summary.final_line_count,
             total_queries=summary.total_queries,
             time_seconds=elapsed,
+            fallback_active=fallback_active,
         )
 
 
 def run_all(bugs: List[BenchmarkBug], prioritizer_kind: str,
             model: Optional[str], verbose: bool = False) -> List[RunResult]:
+    # Build the prioritizer ONCE — reused across every bug so an LLM
+    # backend loads its model weights a single time per config.
+    prioritizer = build_prioritizer(kind=prioritizer_kind, model=model,
+                                    verbose=verbose)
+    fallback = _is_fallback(prioritizer, prioritizer_kind)
+    if fallback:
+        # Loud, top-line warning — silent fallback previously produced
+        # rows that looked identical to real heuristic runs and made the
+        # comparison chart lie.
+        label = f"{prioritizer_kind}/{model}" if model else prioritizer_kind
+        print(f"[WARNING] LLM backend for {label} could not be built "
+              f"(gated model? missing HF_TOKEN? missing [llm] extras?). "
+              f"Falling back to HEURISTIC. Results below are NOT real "
+              f"LLM data — they will be flagged fallback_active=true.",
+              file=sys.stderr, flush=True)
+
     results: List[RunResult] = []
     for bug in bugs:
         print(f"[{prioritizer_kind}"
               f"{'/'+model if model else ''}] {bug.bug_id}...", flush=True)
-        r = run_one(bug, prioritizer_kind, model, verbose=verbose)
+        r = run_one(bug, prioritizer, verbose=verbose,
+                    prioritizer_kind=prioritizer_kind, model=model,
+                    fallback_active=fallback)
         icon = "OK" if r.success else "FAIL"
+        tag = " (FALLBACK)" if fallback else ""
         if r.error:
-            print(f"  {icon}  errored: {r.error}")
+            print(f"  {icon}{tag}  errored: {r.error}")
         else:
-            print(f"  {icon}  files {r.original_files}->{r.final_files} "
+            print(f"  {icon}{tag}  files {r.original_files}->{r.final_files} "
                   f"lines {r.original_lines}->{r.final_lines} "
                   f"queries={r.total_queries} time={r.time_seconds:.2f}s")
         results.append(r)

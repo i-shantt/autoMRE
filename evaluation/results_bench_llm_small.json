@@ -1,7 +1,7 @@
 {
   "config": {
-    "prioritizer": "heuristic",
-    "model": null
+    "prioritizer": "llm",
+    "model": "small"
   },
   "summary": {
     "n_bugs": 3,
@@ -10,49 +10,49 @@
     "median_file_reduction": 0.75,
     "median_line_reduction": 0.6097560975609756,
     "median_queries": 9,
-    "median_time_seconds": 0.2791407108306885,
-    "total_time_seconds": 0.9055418968200684
+    "median_time_seconds": 1.8151829242706299,
+    "total_time_seconds": 6.267003297805786
   },
   "runs": [
     {
       "bug_id": "project1_cross_file_type_error",
-      "prioritizer": "heuristic",
-      "model": null,
+      "prioritizer": "llm",
+      "model": "small",
       "success": true,
       "original_files": 4,
       "final_files": 1,
       "original_lines": 41,
       "final_lines": 16,
       "total_queries": 7,
-      "time_seconds": 0.23793721199035645,
+      "time_seconds": 1.2930071353912354,
       "error": null,
       "fallback_active": false
     },
     {
       "bug_id": "project2_dep_chain",
-      "prioritizer": "heuristic",
-      "model": null,
+      "prioritizer": "llm",
+      "model": "small",
       "success": true,
       "original_files": 5,
       "final_files": 1,
       "original_lines": 37,
       "final_lines": 14,
       "total_queries": 9,
-      "time_seconds": 0.2791407108306885,
+      "time_seconds": 1.8151829242706299,
       "error": null,
       "fallback_active": false
     },
     {
       "bug_id": "project3_side_effects",
-      "prioritizer": "heuristic",
-      "model": null,
+      "prioritizer": "llm",
+      "model": "small",
       "success": true,
       "original_files": 3,
       "final_files": 2,
       "original_lines": 26,
       "final_lines": 21,
-      "total_queries": 14,
-      "time_seconds": 0.38846397399902344,
+      "total_queries": 11,
+      "time_seconds": 3.158813238143921,
       "error": null,
       "fallback_active": false
     }

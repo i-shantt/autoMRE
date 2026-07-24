@@ -11,8 +11,77 @@
       "median_file_reduction": 0.75,
       "median_line_reduction": 0.6097560975609756,
       "median_queries": 9,
-      "median_time_seconds": 0.3097350597381592,
-      "total_time_seconds": 0.9958508014678955
-    }
+      "median_time_seconds": 0.2791407108306885,
+      "total_time_seconds": 0.9055418968200684
+    },
+    "fallback": false
+  },
+  {
+    "key": "llm_tiny",
+    "label": "tiny",
+    "prioritizer": "llm",
+    "model": "tiny",
+    "summary": {
+      "n_bugs": 3,
+      "n_success": 3,
+      "success_rate": 1.0,
+      "median_file_reduction": 0.75,
+      "median_line_reduction": 0.6097560975609756,
+      "median_queries": 9,
+      "median_time_seconds": 1.380605936050415,
+      "total_time_seconds": 4.474027395248413
+    },
+    "fallback": false
+  },
+  {
+    "key": "llm_small",
+    "label": "small",
+    "prioritizer": "llm",
+    "model": "small",
+    "summary": {
+      "n_bugs": 3,
+      "n_success": 3,
+      "success_rate": 1.0,
+      "median_file_reduction": 0.75,
+      "median_line_reduction": 0.6097560975609756,
+      "median_queries": 9,
+      "median_time_seconds": 1.8151829242706299,
+      "total_time_seconds": 6.267003297805786
+    },
+    "fallback": false
+  },
+  {
+    "key": "llm_medium",
+    "label": "medium",
+    "prioritizer": "llm",
+    "model": "medium",
+    "summary": {
+      "n_bugs": 3,
+      "n_success": 3,
+      "success_rate": 1.0,
+      "median_file_reduction": 0.75,
+      "median_line_reduction": 0.6097560975609756,
+      "median_queries": 9,
+      "median_time_seconds": 4.770248889923096,
+      "total_time_seconds": 14.595471858978271
+    },
+    "fallback": false
+  },
+  {
+    "key": "llm_alt",
+    "label": "alt",
+    "prioritizer": "llm",
+    "model": "alt",
+    "summary": {
+      "n_bugs": 3,
+      "n_success": 3,
+      "success_rate": 1.0,
+      "median_file_reduction": 0.75,
+      "median_line_reduction": 0.6097560975609756,
+      "median_queries": 9,
+      "median_time_seconds": 0.3338348865509033,
+      "total_time_seconds": 1.1207458972930908
+    },
+    "fallback": true
   }
 ]

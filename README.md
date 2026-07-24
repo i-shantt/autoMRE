@@ -178,15 +178,23 @@ python evaluation/model_comparison.py
 
 `model_comparison.py` emits `evaluation/results_bench_comparison.md` (a markdown table) and, with matplotlib available, `evaluation/results_bench_comparison.png` (a bar chart of line-reduction / queries / wall-time by prioritizer).
 
-### Baseline: heuristic prioritizer
+### Preliminary results on the built-in benchmark (Apple M4, 16 GB, MPS)
 
-Numbers from `python evaluation/bugsinpy_runner.py --prioritizer heuristic` on the built-in multi-file dataset (3 bugs):
+Full matrix from `python evaluation/model_comparison.py` on a base-model MacBook Air (M4, 16 GB unified memory, MPS backend, fp16 for all LLM tiers since `bitsandbytes` is CUDA-only):
 
-| Prioritizer | Success | Median file reduction | Median line reduction | Median queries | Median time /bug |
-|-------------|---------|-----------------------|-----------------------|----------------|------------------|
+| Prioritizer | Success | Median file red. | Median line red. | Median queries | Median time /bug |
+|-------------|---------|------------------|------------------|----------------|------------------|
 | heuristic | 3/3 | 75.0% | 61.0% | 9.0 | 0.28s |
+| tiny (Qwen 0.5B) | 3/3 | 75.0% | 61.0% | 9.0 | 1.38s |
+| small (Qwen 1.5B) | 3/3 | 75.0% | 61.0% | 9.0 | 1.82s |
+| medium (Qwen 3B) | 3/3 | 75.0% | 61.0% | 9.0 | 4.77s |
+| alt (CodeGemma 2B) | — | — | — | — | — |
 
-The `llm/*` rows land here once you've run `model_comparison.py` with the ML extras installed.
+**Honest read of the numbers:** on this tiny 3-project built-in benchmark, all prioritizers produce identical output — the LLM adds no reduction quality. This is expected: Phase 4 (per-file HDD-E) barely runs after Phases 1–3 do most of the work on small projects. **The one real signal**: `small` used 11 queries on project3 (side-effects test) vs. heuristic's 14 — a ~20% query saving on the hardest of the three bugs. Wall time scales with model size.
+
+Meaningful discrimination requires a larger, harder benchmark (see Roadmap — Gistify head-to-head).
+
+**Notes on `alt` (CodeGemma-2B-it)**: CodeGemma is a **gated** model on Hugging Face. To include it in the comparison you must (a) accept the license at `https://huggingface.co/google/codegemma-2b-it`, (b) create a token at `https://huggingface.co/settings/tokens`, and (c) `export HF_TOKEN=...` before running. Without a token the tool falls back to heuristic and marks the result row `⚠️FALLBACK` so you don't confuse it with real LLM data.
 
 ### Legacy single-file baselines
 
