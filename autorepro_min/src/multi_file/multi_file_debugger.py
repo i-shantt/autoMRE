@@ -75,12 +75,13 @@ class MultiFileDebugger:
 
     def __init__(self, verbose: bool = False, timeout: int = 60,
                  match_strategy: str = "error_type",
-                 prioritizer=None):
+                 prioritizer=None,
+                 aggressive_inline: bool = False):
         self.verbose = verbose
         self.timeout = timeout
         self.match_strategy = match_strategy
         self.analyzer = DependencyAnalyzer()
-        self.inliner = ImportInliner()
+        self.inliner = ImportInliner(aggressive=aggressive_inline)
         # Same strategy is reused for every per-file HDD-E in Phase 4 so
         # the ML backend (if any) loads once, not once per file.
         if prioritizer is None:

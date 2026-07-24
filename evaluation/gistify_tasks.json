@@ -1,0 +1,49 @@
+{
+  "_description": "Gistify-style benchmark tasks. Each entry describes a test-case-per-repo that our tool must reduce while preserving output. Modeled on the Gistify paper (Lee et al., ICLR 2026, arXiv 2510.26790) — same repos, same evaluation shape, but a custom test selection because the paper's exact 25-test list isn't publicly released.",
+  "_evaluation_note": "Execution Fidelity per Gistify: 1 iff runs(c, G) AND out(c, G) = out(c, C). Success = 1 if the reduced project still runs the same test command with the same output (after our validator's normalize step).",
+  "_test_selection_criteria": "Pure-Python tests (no network, no fixtures needing a running service) that exercise a bounded slice of the codebase. Kept intentionally small so the harness runs in reasonable time on a laptop.",
+  "tasks": [
+    {
+      "task_id": "requests-super_len_partial",
+      "repo": "https://github.com/psf/requests",
+      "commit": "v2.32.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::TestSuperLen::test_super_len_correctly_calculates_len_of_partially_read_file", "-x", "-q", "--no-header"],
+      "notes": "Exercises requests.utils.super_len — the len() variant that handles partially-read file objects."
+    },
+    {
+      "task_id": "requests-guess_json_utf",
+      "repo": "https://github.com/psf/requests",
+      "commit": "v2.32.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::TestGuessJSONUTF", "-x", "-q", "--no-header"],
+      "notes": "Class of 8 tests for BOM-based JSON encoding detection. All pure-Python, no network."
+    },
+    {
+      "task_id": "requests-content_disposition",
+      "repo": "https://github.com/psf/requests",
+      "commit": "v2.32.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::TestContentEncodingDetection", "-x", "-q", "--no-header"],
+      "notes": "Content-type/encoding detection helpers."
+    },
+    {
+      "task_id": "requests-cookie_utils",
+      "repo": "https://github.com/psf/requests",
+      "commit": "v2.32.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::test_dict_from_cookiejar", "-x", "-q", "--no-header"],
+      "notes": "Cookie jar to dict conversion — pure data structure work."
+    },
+    {
+      "task_id": "flask-request_ctx_basic",
+      "repo": "https://github.com/pallets/flask",
+      "commit": "3.0.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_basic.py::test_method_route", "-x", "-q", "--no-header"],
+      "notes": "Basic Flask route registration + method matching. Small surface."
+    },
+    {
+      "task_id": "flask-blueprint_registration",
+      "repo": "https://github.com/pallets/flask",
+      "commit": "3.0.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_blueprints.py::test_blueprint_specific_error_handling", "-x", "-q", "--no-header"],
+      "notes": "Blueprint-scoped error handling. Exercises the blueprint machinery."
+    }
+  ]
+}

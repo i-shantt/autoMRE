@@ -240,10 +240,13 @@ def cmd_reduce_project(args):
         quantize=not getattr(args, "no_quantize", False),
         verbose=args.verbose,
     )
-    debugger = MultiFileDebugger(verbose=args.verbose,
-                                 timeout=args.timeout,
-                                 match_strategy=args.strategy,
-                                 prioritizer=prioritizer)
+    debugger = MultiFileDebugger(
+        verbose=args.verbose,
+        timeout=args.timeout,
+        match_strategy=args.strategy,
+        prioritizer=prioritizer,
+        aggressive_inline=getattr(args, "aggressive_inline", False),
+    )
     result = debugger.reduce_project(work_dir, test_command)
 
     print()
@@ -358,7 +361,7 @@ Examples:
     validate_parser.add_argument('-r', '--reference', help='Reference file for comparison')
     validate_parser.add_argument('-c', '--command', help='Command to execute')
     validate_parser.add_argument('-s', '--strategy', default='error_type',
-                                choices=['exact', 'error_type', 'error_message'],
+                                choices=['exact', 'output_match', 'error_type', 'error_message'],
                                 help='Validation strategy')
     validate_parser.add_argument('-v', '--verbose', action='store_true',
                                 help='Verbose output')
@@ -394,7 +397,7 @@ Examples:
     rp.add_argument('-t', '--timeout', type=int, default=60,
                     help='Per-run reproduction timeout in seconds')
     rp.add_argument('-s', '--strategy', default='error_type',
-                    choices=['exact', 'error_type', 'error_message'],
+                    choices=['exact', 'output_match', 'error_type', 'error_message'],
                     help='Behavior-matching strategy')
     rp.add_argument('--prioritizer', default='heuristic',
                     choices=['heuristic', 'llm'],
@@ -407,6 +410,9 @@ Examples:
     rp.add_argument('--no-quantize', action='store_true',
                     help='Disable 4-bit CUDA quantization '
                          '(load in fp16/bf16 instead)')
+    rp.add_argument('--aggressive-inline', action='store_true',
+                    help='Inline modules even with top-level side effects '
+                         '(needed for Gistify single-file output)')
     rp.add_argument('-v', '--verbose', action='store_true',
                     help='Verbose progress output')
 

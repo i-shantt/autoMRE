@@ -50,14 +50,34 @@ class InlineResult:
 
 
 class ImportInliner:
-    """Inlines a target file's used definitions into its importers."""
+    """Inlines a target file's used definitions into its importers.
+
+    Args:
+        aggressive: when True, skip the "target has side-effect statements"
+            refusal. In aggressive mode we attempt the inline anyway and
+            let the whole-project validator roll back if the reduction
+            actually breaks the bug. Trades safety for coverage — useful
+            for benchmarks like Gistify that reward single-file output
+            (Self-Containment metric).
+    """
+
+    def __init__(self, aggressive: bool = False):
+        self.aggressive = aggressive
 
     def can_inline(self, target_file: Path) -> Tuple[bool, str]:
-        """Cheap up-front check: does the target look safe to inline?"""
+        """Cheap up-front check: does the target look safe to inline?
+
+        In aggressive mode this always returns True for parseable targets
+        — the caller (MultiFileDebugger) will verify empirically via the
+        whole-project validator.
+        """
         try:
             tree = ast.parse(target_file.read_text())
         except (SyntaxError, OSError, UnicodeDecodeError) as exc:
             return False, f"unparseable target: {exc}"
+
+        if self.aggressive:
+            return True, ""
 
         for node in tree.body:
             if isinstance(node, ast.Expr) and isinstance(
@@ -68,7 +88,7 @@ class ImportInliner:
             if not isinstance(node, _TOP_LEVEL_ALLOWED):
                 return False, (
                     f"top-level {type(node).__name__} has side-effects; "
-                    "refusing to inline")
+                    "refusing to inline (use aggressive=True to try anyway)")
         return True, ""
 
     def inline(self, target_file: Path, importers: List[Path],
@@ -108,7 +128,7 @@ class ImportInliner:
 
             new_source = self._rewrite_importer(
                 imp_source, imp_tree, target_module, top_defs,
-                forward_imports)
+                forward_imports, target_full_source=target_source)
             if new_source is None:
                 return InlineResult(
                     success=False,
@@ -188,41 +208,115 @@ class ImportInliner:
                     out.append(snippet)
         return out
 
+    def _uses_attribute(self, tree: ast.Module, name: str) -> bool:
+        """Does the importer access `name.something` anywhere?"""
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and \
+                    isinstance(node.value, ast.Name) and \
+                    node.value.id == name:
+                return True
+        return False
+
+    def _strip_main_guard(self, source: str) -> str:
+        """Remove `if __name__ == '__main__': ...` blocks from a source
+        we're about to inline as a module preamble — that guard only
+        fires when the file runs as a script, not when it's imported.
+        Leaving it in a preamble would cause it to execute in the
+        importer's context, which is wrong.
+        """
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return source
+        drops: List[Tuple[int, int]] = []
+        for node in tree.body:
+            if isinstance(node, ast.If):
+                test = node.test
+                if (isinstance(test, ast.Compare) and
+                        isinstance(test.left, ast.Name) and
+                        test.left.id == "__name__" and
+                        len(test.comparators) == 1 and
+                        isinstance(test.comparators[0], ast.Constant) and
+                        test.comparators[0].value == "__main__"):
+                    drops.append((node.lineno - 1,
+                                  node.end_lineno or node.lineno))
+        if not drops:
+            return source
+        lines = source.splitlines(keepends=True)
+        keep = [ln for i, ln in enumerate(lines)
+                if not any(s <= i < e for s, e in drops)]
+        return "".join(keep)
+
     def _rewrite_importer(self, source: str, tree: ast.Module,
                           target_module: str, top_defs: Dict[str, str],
-                          forward_imports: List[str]) -> Optional[str]:
+                          forward_imports: List[str],
+                          target_full_source: str = "") -> Optional[str]:
         """Replace `from target import ...` lines with inlined defs.
 
-        Returns None if the importer uses the target in an un-inlineable
-        way (e.g. `import target`, `from target import *`).
+        In aggressive mode, un-inlineable patterns (`import target`,
+        `from target import *`, unknown-name imports) fall back to
+        prepending the ENTIRE target module source to the importer and
+        stripping the import lines. This preserves module-level side
+        effects at the cost of any naming conflicts.
+
+        Returns None (aggressive: only if unrecoverable, e.g. `target.X`
+        attribute access we can't rewrite; non-aggressive: on any of the
+        above patterns).
         """
         source_lines = source.splitlines(keepends=True)
         edits: List[Tuple[int, int, str]] = []  # (start, end, replacement)
         inlined_names: Set[str] = set()
+        fallback_dump = False        # aggressive: dump full target source
 
         for node in tree.body:
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     if alias.name == target_module or \
                        alias.name.startswith(target_module + "."):
-                        return None  # can't inline plain `import mod`
+                        if not self.aggressive:
+                            return None  # can't inline plain `import mod`
+                        # Aggressive: check the importer doesn't call
+                        # target.X anywhere. If it does, we'd need a
+                        # rewriter — skip. If it doesn't (side-effect
+                        # import), dumping the target source in place
+                        # preserves semantics.
+                        bound_name = alias.asname or alias.name.split(".")[0]
+                        if self._uses_attribute(tree, bound_name):
+                            return None
+                        fallback_dump = True
+                        start = node.lineno - 1
+                        end = (node.end_lineno or node.lineno)
+                        edits.append((start, end, ""))
             elif isinstance(node, ast.ImportFrom):
                 module = node.module or ""
                 if module != target_module:
                     continue
                 if any(a.name == "*" for a in node.names):
-                    return None
+                    if not self.aggressive:
+                        return None
+                    fallback_dump = True
+                    start = node.lineno - 1
+                    end = (node.end_lineno or node.lineno)
+                    edits.append((start, end, ""))
+                    continue
                 for a in node.names:
                     if a.name not in top_defs:
-                        # Importing a symbol we didn't collect (probably a
-                        # side-effect binding). Refuse the whole inlining.
-                        return None
-                    inlined_names.add(a.name)
+                        if not self.aggressive:
+                            # Symbol we didn't collect (side-effect
+                            # binding). Refuse the whole inlining.
+                            return None
+                        # Aggressive: fall back to dumping full source.
+                        fallback_dump = True
+                    else:
+                        inlined_names.add(a.name)
                 start = node.lineno - 1
                 end = (node.end_lineno or node.lineno)
                 edits.append((start, end, ""))
 
-        if not inlined_names:
+        if not edits:
+            # No import of the target found in this importer — no work.
+            return source
+        if not inlined_names and not fallback_dump:
             # Nothing to do for this importer — nothing to change.
             return source
 
@@ -232,14 +326,20 @@ class ImportInliner:
         # calls a peer `call_c` would leave `call_c` undefined.
         inlined_names = self._transitively_close(inlined_names, top_defs)
 
-        # Build the inlined block: forward imports, then the definitions
-        # (deterministic order to keep output stable).
-        block_parts: List[str] = []
-        if forward_imports:
-            block_parts.extend(forward_imports)
-        for name in sorted(inlined_names):
-            block_parts.append(top_defs[name])
-        inlined_block = "\n\n".join(block_parts).rstrip() + "\n\n"
+        # Build the inlined block. In aggressive fallback mode we dump
+        # the whole target source (minus its `if __name__ == '__main__'`
+        # block, which shouldn't run when the module is imported); in
+        # surgical mode we assemble the specific inlined defs.
+        if fallback_dump and target_full_source:
+            inlined_block = self._strip_main_guard(target_full_source) \
+                            .rstrip() + "\n\n"
+        else:
+            block_parts: List[str] = []
+            if forward_imports:
+                block_parts.extend(forward_imports)
+            for name in sorted(inlined_names):
+                block_parts.append(top_defs[name])
+            inlined_block = "\n\n".join(block_parts).rstrip() + "\n\n"
 
         # Apply edits from bottom to top so line indices stay valid.
         # We drop the import lines entirely and prepend the inlined block

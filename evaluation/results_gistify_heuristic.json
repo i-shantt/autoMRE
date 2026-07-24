@@ -1,0 +1,105 @@
+{
+  "config": {
+    "prioritizer": "heuristic",
+    "model": null
+  },
+  "summary": {
+    "n_tasks": 6,
+    "execution_fidelity_rate": 1.0,
+    "single_file_rate": 0.0,
+    "avg_time_seconds": 52.36879003047943,
+    "avg_queries": 240.66666666666666
+  },
+  "runs": [
+    {
+      "task_id": "requests-super_len_partial",
+      "prioritizer": "heuristic",
+      "model": null,
+      "execution_fidelity": 1,
+      "original_files": 36,
+      "final_files": 4,
+      "original_lines": 11209,
+      "final_lines": 798,
+      "single_file_output": false,
+      "total_queries": 214,
+      "time_seconds": 51.47814106941223,
+      "error": null,
+      "fallback_active": false
+    },
+    {
+      "task_id": "requests-guess_json_utf",
+      "prioritizer": "heuristic",
+      "model": null,
+      "execution_fidelity": 1,
+      "original_files": 36,
+      "final_files": 4,
+      "original_lines": 11209,
+      "final_lines": 721,
+      "single_file_output": false,
+      "total_queries": 246,
+      "time_seconds": 54.58195471763611,
+      "error": null,
+      "fallback_active": false
+    },
+    {
+      "task_id": "requests-content_disposition",
+      "prioritizer": "heuristic",
+      "model": null,
+      "execution_fidelity": 1,
+      "original_files": 36,
+      "final_files": 4,
+      "original_lines": 11209,
+      "final_lines": 718,
+      "single_file_output": false,
+      "total_queries": 245,
+      "time_seconds": 54.08613085746765,
+      "error": null,
+      "fallback_active": false
+    },
+    {
+      "task_id": "requests-cookie_utils",
+      "prioritizer": "heuristic",
+      "model": null,
+      "execution_fidelity": 1,
+      "original_files": 36,
+      "final_files": 4,
+      "original_lines": 11209,
+      "final_lines": 661,
+      "single_file_output": false,
+      "total_queries": 222,
+      "time_seconds": 48.561731815338135,
+      "error": null,
+      "fallback_active": false
+    },
+    {
+      "task_id": "flask-request_ctx_basic",
+      "prioritizer": "heuristic",
+      "model": null,
+      "execution_fidelity": 1,
+      "original_files": 82,
+      "final_files": 2,
+      "original_lines": 17565,
+      "final_lines": 679,
+      "single_file_output": false,
+      "total_queries": 410,
+      "time_seconds": 85.70325589179993,
+      "error": null,
+      "fallback_active": false
+    },
+    {
+      "task_id": "flask-blueprint_registration",
+      "prioritizer": "heuristic",
+      "model": null,
+      "execution_fidelity": 1,
+      "original_files": 82,
+      "final_files": 2,
+      "original_lines": 17565,
+      "final_lines": 393,
+      "single_file_output": false,
+      "total_queries": 107,
+      "time_seconds": 19.801525831222534,
+      "error": null,
+      "fallback_active": false
+    }
+  ]
+}

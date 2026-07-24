@@ -232,6 +232,16 @@ class Validator:
             return (output == self.original_behavior.output and
                     return_code == self.original_behavior.return_code)
 
+        elif self.match_strategy == "output_match":
+            # Gistify-style: return code must match, and normalized
+            # stdout/stderr must be equal. Normalization strips
+            # timing/paths/progress markers that vary run-to-run but
+            # don't reflect behavior differences.
+            if return_code != self.original_behavior.return_code:
+                return False
+            return (self._normalize_output(output) ==
+                    self._normalize_output(self.original_behavior.output))
+
         elif self.match_strategy == "error_type":
             # Match on error type (most permissive)
             orig_error = self.original_behavior.error_type
@@ -285,6 +295,48 @@ class Validator:
         current_message = current_message or ""
 
         return self._text_similarity(orig_message, current_message)
+
+    @staticmethod
+    def _normalize_output(text: str) -> str:
+        """Strip run-to-run noise so `output_match` compares meaningfully.
+
+        Removes:
+          * pytest timings like `in 0.05s`, `[ 67%]`, `[100%]`
+          * absolute paths that will differ between the original run and
+            the reduced-code temp dir
+          * python tracebacks' "File "/tmp/xyz.py"" line-number noise —
+            trims to just the filename + line number
+          * blank lines and trailing whitespace on each line
+
+        The goal is not perfect canonicalization — just cheap
+        normalization that turns noisy-equal outputs into string-equal
+        outputs so the validator doesn't reject a valid reduction over
+        a millisecond difference.
+        """
+        import re
+        if not text:
+            return ""
+        lines = text.splitlines()
+        out = []
+        for line in lines:
+            line = line.rstrip()
+            if not line:
+                continue
+            # pytest / unittest timing summaries
+            line = re.sub(r"\s+in\s+\d+\.\d+s(\s|$)", " in Xs\\1", line)
+            line = re.sub(r"\bin\s+\d+\.\d+\s*seconds?\b", "in Xs", line)
+            # progress markers like "[ 67%]" or "[100%]"
+            line = re.sub(r"\[\s*\d+%\s*\]", "[NN%]", line)
+            # tempfile paths / absolute path components
+            line = re.sub(r"/(private/)?tmp/[^\s\"']*",
+                          "/tmp/PATH", line)
+            line = re.sub(r"/var/folders/[^\s\"']*",
+                          "/tmp/PATH", line)
+            # File "/some/long/absolute/path/foo.py" -> File "foo.py"
+            line = re.sub(r'File\s+"([^"]*/)?([^/"]+)"',
+                          r'File "\2"', line)
+            out.append(line)
+        return "\n".join(out)
 
     @staticmethod
     def _text_similarity(text1: str, text2: str) -> float:
