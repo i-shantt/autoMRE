@@ -250,7 +250,7 @@ Examples:
 
     parser.add_argument('--version', action='version', version='%(prog)s 0.1.0')
 
-    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    subparsers = parser.add_subparsers(dest='subcommand', help='Available commands')
 
     # Reduce command
     reduce_parser = subparsers.add_parser('reduce', help='Minimize bug-triggering code')
@@ -292,7 +292,7 @@ Examples:
 
     args = parser.parse_args()
 
-    if not args.command:
+    if not args.subcommand:
         parser.print_help()
         return 1
 
@@ -304,7 +304,7 @@ Examples:
         'parse': cmd_parse,
     }
 
-    return commands[args.command](args)
+    return commands[args.subcommand](args)
 
 
 if __name__ == '__main__':

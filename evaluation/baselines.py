@@ -95,7 +95,7 @@ class VanillaDDMin:
             if test_command:
                 cmd = test_command
             else:
-                cmd = ['python', str(temp_file)]
+                cmd = [sys.executable, str(temp_file)]
 
             result = subprocess.run(cmd, cwd=cwd, capture_output=True,
                                    text=True, timeout=self.timeout)
@@ -213,7 +213,7 @@ class SyntaxAwareReducer:
             if test_command:
                 cmd = test_command
             else:
-                cmd = ['python', str(temp_file)]
+                cmd = [sys.executable, str(temp_file)]
 
             result = subprocess.run(cmd, cwd=cwd, capture_output=True,
                                    text=True, timeout=self.timeout)
@@ -325,7 +325,7 @@ class RandomReducer:
             if test_command:
                 cmd = test_command
             else:
-                cmd = ['python', str(temp_file)]
+                cmd = [sys.executable, str(temp_file)]
 
             result = subprocess.run(cmd, cwd=cwd, capture_output=True,
                                    text=True, timeout=self.timeout)

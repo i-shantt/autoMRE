@@ -1,0 +1,62 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyTest / Coverage
+.cache/
+.pytest_cache/
+.coverage
+.coverage.*
+.htmlcov/
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE / Editor configuration
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Claude / Agent tools
+.claude/
+
+# Temporary / Output files from execution
+autorepro_min/examples/simple_single_file/bug_output.py
+evaluation/comparison_results.json

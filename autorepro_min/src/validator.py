@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -162,7 +163,7 @@ class Validator:
                 cmd = command
             else:
                 # Default: run as Python script
-                cmd = ['python', str(temp_file)]
+                cmd = [sys.executable, str(temp_file)]
 
             result = subprocess.run(
                 cmd,
@@ -357,7 +358,7 @@ if __name__ == "__main__":
     file_path = Path(sys.argv[1])
 
     # First, capture original behavior
-    result = subprocess.run(['python', str(file_path)],
+    result = subprocess.run([sys.executable, str(file_path)],
                            capture_output=True, text=True)
 
     validator = Validator()

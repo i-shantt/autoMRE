@@ -89,7 +89,7 @@ class ExecutionTracer:
             # Run command with coverage
             try:
                 result = subprocess.run(
-                    ['python', '-m', 'coverage', 'run', '--branch',
+                    [sys.executable, '-m', 'coverage', 'run', '--branch',
                      '--data-file', str(coverage_file),
                      '--source', '.'] + command,
                     cwd=cwd,

@@ -4,7 +4,7 @@
     "successful_reductions": 2,
     "success_rate": 1.0,
     "avg_reduction_rate": 0.8758169934640523,
-    "avg_time_seconds": 25.09277868270874,
+    "avg_time_seconds": 10.718139886856079,
     "avg_queries": 635.5
   },
   "project_summaries": {
@@ -13,7 +13,7 @@
       "successful_reductions": 2,
       "success_rate": 1.0,
       "avg_reduction_rate": 0.8758169934640523,
-      "avg_time_seconds": 25.09277868270874,
+      "avg_time_seconds": 10.718139886856079,
       "avg_queries": 635.5
     }
   },
@@ -29,7 +29,7 @@
         "success": true,
         "executable": true,
         "behavior_preserved": true,
-        "time_seconds": 27.93675994873047,
+        "time_seconds": 11.990356922149658,
         "query_count": 706,
         "original_executed_lines": 0,
         "minimized_executed_lines": 0,
@@ -47,7 +47,7 @@
         "success": true,
         "executable": true,
         "behavior_preserved": true,
-        "time_seconds": 22.24879741668701,
+        "time_seconds": 9.4459228515625,
         "query_count": 565,
         "original_executed_lines": 0,
         "minimized_executed_lines": 0,

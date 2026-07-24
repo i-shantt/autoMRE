@@ -64,12 +64,15 @@ run_tests() {
     print_section "Running unit tests..."
     cd "$SCRIPT_DIR"
 
+    # Set PYTHONPATH to include the src directory so modules can import each other
+    export PYTHONPATH="$SCRIPT_DIR/autorepro_min/src"
+
     # Test parser
     echo "  Testing parser..."
     python3 -c "
-from autorepro_min.src.parser import PythonParser
+from parser import PythonParser
 parser = PythonParser()
-code = 'def foo():\\n    pass'
+code = 'def foo():\n    pass'
 tree = parser.parse_source(code)
 print('    Parser: OK')
 "
@@ -77,7 +80,7 @@ print('    Parser: OK')
     # Test tracer
     echo "  Testing tracer..."
     python3 -c "
-from autorepro_min.src.tracer import ExecutionTracer
+from tracer import ExecutionTracer
 tracer = ExecutionTracer()
 print('    Tracer: OK')
 "
@@ -85,7 +88,7 @@ print('    Tracer: OK')
     # Test validator
     echo "  Testing validator..."
     python3 -c "
-from autorepro_min.src.validator import Validator
+from validator import Validator
 validator = Validator()
 print('    Validator: OK')
 "
@@ -93,10 +96,13 @@ print('    Validator: OK')
     # Test reducer
     echo "  Testing reducer..."
     python3 -c "
-from autorepro_min.src.reducer import HybridDeltaDebugger
+from reducer import HybridDeltaDebugger
 reducer = HybridDeltaDebugger()
 print('    Reducer: OK')
 "
+
+    # Restore PYTHONPATH
+    unset PYTHONPATH
 
     print_success "All tests passed"
 }
