@@ -1,0 +1,58 @@
+{
+  "summary": {
+    "total_bugs": 2,
+    "successful_reductions": 2,
+    "success_rate": 1.0,
+    "avg_reduction_rate": 0.19215686274509802,
+    "avg_time_seconds": 0.5941900014877319,
+    "avg_queries": 8.5
+  },
+  "project_summaries": {
+    "examples": {
+      "total_bugs": 2,
+      "successful_reductions": 2,
+      "success_rate": 1.0,
+      "avg_reduction_rate": 0.19215686274509802,
+      "avg_time_seconds": 0.5941900014877319,
+      "avg_queries": 8.5
+    }
+  },
+  "results": [
+    {
+      "bug_id": "bug2",
+      "project": "examples",
+      "metrics": {
+        "original_lines": 51,
+        "minimized_lines": 45,
+        "size_reduction_rate": 0.11764705882352941,
+        "compression_ratio": 1.1333333333333333,
+        "success": true,
+        "executable": true,
+        "behavior_preserved": true,
+        "time_seconds": 0.8946125507354736,
+        "query_count": 10,
+        "original_executed_lines": 0,
+        "minimized_executed_lines": 0,
+        "line_execution_rate": 0.0
+      }
+    },
+    {
+      "bug_id": "bug",
+      "project": "examples",
+      "metrics": {
+        "original_lines": 45,
+        "minimized_lines": 33,
+        "size_reduction_rate": 0.26666666666666666,
+        "compression_ratio": 1.3636363636363635,
+        "success": true,
+        "executable": true,
+        "behavior_preserved": true,
+        "time_seconds": 0.29376745223999023,
+        "query_count": 7,
+        "original_executed_lines": 0,
+        "minimized_executed_lines": 0,
+        "line_execution_rate": 0.0
+      }
+    }
+  ]
+}

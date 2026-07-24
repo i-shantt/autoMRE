@@ -1,0 +1,311 @@
+"""
+AutoRepro-Min: Automated Bug Reproduction Minimization
+Command-Line Interface
+
+Usage:
+    python -m autorepro_min reduce [options] <file>
+    python -m autorepro_min validate [options] <file>
+    python -m autorepro_min trace [options] <file>
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+from parser import PythonParser
+from tracer import ExecutionTracer
+from validator import Validator
+from reducer import HybridDeltaDebugger, LineLevelDeltaDebugger
+
+
+def cmd_reduce(args):
+    """Execute the reduce command."""
+    file_path = Path(args.file)
+
+    if not file_path.exists():
+        print(f"Error: File not found: {file_path}", file=sys.stderr)
+        return 1
+
+    # Read source code
+    source_code = file_path.read_text()
+
+    print(f"AutoRepro-Min: Reducing {file_path}")
+    print(f"Original size: {len(source_code.split(chr(10)))} lines")
+    print()
+
+    # Create reducer
+    if args.algorithm == "hdd-e":
+        reducer = HybridDeltaDebugger(verbose=args.verbose)
+    else:
+        reducer = LineLevelDeltaDebugger(verbose=args.verbose)
+
+    # Build test command if provided
+    test_command = None
+    if args.command:
+        test_command = args.command.split()
+    elif args.pytest:
+        test_command = ['pytest', str(file_path), '-v']
+
+    # Run reduction
+    result = reducer.reduce(
+        source_code=source_code,
+        test_command=test_command,
+        cwd=file_path.parent
+    )
+
+    print()
+    print("=" * 60)
+    print("REDUCTION RESULTS")
+    print("=" * 60)
+    print(f"Original size:  {result.stats.original_size} lines")
+    print(f"Minimized size: {result.stats.final_size} lines")
+    print(f"Reduction rate: {result.stats.reduction_rate*100:.1f}%")
+    print(f"Iterations:     {result.stats.iterations}")
+    print(f"Queries:        {result.stats.queries}")
+    print(f"Time:           {result.stats.time_seconds:.2f}s")
+    print()
+
+    # Write output
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        output_path = file_path.with_suffix('.min.py')
+
+    output_path.write_text(result.minimized_code)
+    print(f"Minimized code written to: {output_path}")
+
+    return 0
+
+
+def cmd_validate(args):
+    """Execute the validate command."""
+    file_path = Path(args.file)
+
+    if not file_path.exists():
+        print(f"Error: File not found: {file_path}", file=sys.stderr)
+        return 1
+
+    source_code = file_path.read_text()
+
+    print(f"AutoRepro-Min: Validating {file_path}")
+
+    # Create validator
+    validator = Validator(match_strategy=args.strategy)
+
+    # Capture original behavior if reference provided
+    if args.reference:
+        ref_path = Path(args.reference)
+        if ref_path.exists():
+            from tracer import ExecutionTracer
+            tracer = ExecutionTracer()
+
+            test_command = None
+            if args.command:
+                test_command = args.command.split()
+
+            if test_command:
+                trace = tracer.trace_command(test_command, cwd=ref_path.parent)
+            else:
+                trace = tracer.trace_python_file(ref_path)
+
+            validator.set_original_behavior(trace.output,
+                                           0 if trace.success else 1)
+            print(f"Original behavior captured from: {ref_path}")
+        else:
+            print(f"Error: Reference file not found: {ref_path}", file=sys.stderr)
+            return 1
+
+    # Validate
+    test_command = None
+    if args.command:
+        test_command = args.command.split()
+
+    result = validator.validate(source_code, test_command, cwd=file_path.parent)
+
+    print()
+    print("=" * 60)
+    print("VALIDATION RESULTS")
+    print("=" * 60)
+    print(f"Valid:                  {result.is_valid}")
+    print(f"Matches original:       {result.matches_original}")
+    print(f"Error type match:       {result.error_type_match}")
+    print(f"Message similarity:     {result.error_message_similarity:.2f}")
+    print(f"Return code:            {result.return_code}")
+    print()
+
+    if args.verbose:
+        print("Output:")
+        print("-" * 40)
+        print(result.output)
+        print("-" * 40)
+
+    return 0 if result.is_valid else 1
+
+
+def cmd_trace(args):
+    """Execute the trace command."""
+    file_path = Path(args.file)
+
+    if not file_path.exists():
+        print(f"Error: File not found: {file_path}", file=sys.stderr)
+        return 1
+
+    print(f"AutoRepro-Min: Tracing {file_path}")
+
+    # Create tracer
+    tracer = ExecutionTracer(timeout=args.timeout)
+
+    # Trace execution
+    test_command = None
+    if args.command:
+        test_command = args.command.split()
+
+    if test_command:
+        trace = tracer.trace_command(test_command, cwd=file_path.parent)
+    else:
+        trace = tracer.trace_python_file(file_path)
+
+    print()
+    print("=" * 60)
+    print("EXECUTION TRACE")
+    print("=" * 60)
+    print(f"Success:        {trace.success}")
+    print(f"Return code:    {trace.return_code}")
+    print(f"Total lines:    {trace.total_executed_lines}")
+    print()
+    print("Executed lines by file:")
+    for path, lines in trace.executed_lines.items():
+        print(f"  {path}: {len(lines)} lines")
+
+    if args.verbose:
+        print()
+        print("Output:")
+        print("-" * 40)
+        print(trace.output)
+        print("-" * 40)
+
+    return 0
+
+
+def cmd_parse(args):
+    """Execute the parse command."""
+    file_path = Path(args.file)
+
+    if not file_path.exists():
+        print(f"Error: File not found: {file_path}", file=sys.stderr)
+        return 1
+
+    print(f"AutoRepro-Min: Parsing {file_path}")
+
+    # Create parser
+    parser = PythonParser()
+    tree, source = parser.parse_file(file_path)
+
+    # Extract units
+    units = parser.extract_units(tree, source)
+
+    print()
+    print("=" * 60)
+    print("PARSE RESULTS")
+    print("=" * 60)
+    print(f"Total top-level units: {len(units)}")
+    print()
+
+    def print_unit(unit, indent=0):
+        prefix = "  " * indent
+        print(f"{prefix}{unit.node_type} (L{unit.start_line}-{unit.end_line}, "
+              f"{unit.size} lines, exec={unit.execution_count})")
+        for child in unit.children:
+            print_unit(child, indent + 1)
+
+    for unit in units:
+        print_unit(unit)
+
+    return 0
+
+
+def main():
+    """Main entry point."""
+    parser = argparse.ArgumentParser(
+        prog='autorepro_min',
+        description='Automated Bug Reproduction Minimization Tool',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Reduce a Python file
+  python -m autorepro_min reduce bug.py -o bug.min.py
+
+  # Reduce with custom command
+  python -m autorepro_min reduce test_bug.py -c "pytest test_bug.py -v"
+
+  # Trace execution
+  python -m autorepro_min trace bug.py
+
+  # Validate minimized code
+  python -m autorepro_min validate bug.min.py -r bug.py
+        """
+    )
+
+    parser.add_argument('--version', action='version', version='%(prog)s 0.1.0')
+
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+
+    # Reduce command
+    reduce_parser = subparsers.add_parser('reduce', help='Minimize bug-triggering code')
+    reduce_parser.add_argument('file', help='Python file to reduce')
+    reduce_parser.add_argument('-o', '--output', help='Output file path')
+    reduce_parser.add_argument('-c', '--command', help='Command to reproduce bug')
+    reduce_parser.add_argument('--pytest', action='store_true', help='Use pytest to run')
+    reduce_parser.add_argument('-a', '--algorithm', default='hdd-e',
+                              choices=['hdd-e', 'ddmin'],
+                              help='Reduction algorithm (default: hdd-e)')
+    reduce_parser.add_argument('-v', '--verbose', action='store_true',
+                              help='Verbose output')
+
+    # Validate command
+    validate_parser = subparsers.add_parser('validate', help='Validate minimized code')
+    validate_parser.add_argument('file', help='Python file to validate')
+    validate_parser.add_argument('-r', '--reference', help='Reference file for comparison')
+    validate_parser.add_argument('-c', '--command', help='Command to execute')
+    validate_parser.add_argument('-s', '--strategy', default='error_type',
+                                choices=['exact', 'error_type', 'error_message'],
+                                help='Validation strategy')
+    validate_parser.add_argument('-v', '--verbose', action='store_true',
+                                help='Verbose output')
+
+    # Trace command
+    trace_parser = subparsers.add_parser('trace', help='Trace execution')
+    trace_parser.add_argument('file', help='Python file to trace')
+    trace_parser.add_argument('-c', '--command', help='Command to execute')
+    trace_parser.add_argument('-t', '--timeout', type=int, default=60,
+                             help='Timeout in seconds')
+    trace_parser.add_argument('-v', '--verbose', action='store_true',
+                             help='Verbose output')
+
+    # Parse command
+    parse_parser = subparsers.add_parser('parse', help='Parse Python file')
+    parse_parser.add_argument('file', help='Python file to parse')
+    parse_parser.add_argument('-v', '--verbose', action='store_true',
+                             help='Verbose output')
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        return 1
+
+    # Dispatch to appropriate command
+    commands = {
+        'reduce': cmd_reduce,
+        'validate': cmd_validate,
+        'trace': cmd_trace,
+        'parse': cmd_parse,
+    }
+
+    return commands[args.command](args)
+
+
+if __name__ == '__main__':
+    sys.exit(main())
