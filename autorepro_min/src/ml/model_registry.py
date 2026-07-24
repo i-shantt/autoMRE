@@ -32,6 +32,7 @@ class ModelSpec:
     ram_4bit_gb: float           # loaded footprint w/ NF4 quantization (CUDA)
     ram_fp16_gb: float           # loaded footprint at fp16 (MPS / non-quant)
     family: str                  # "qwen2.5-coder" or "codegemma"
+    quantize_by_default: bool    # 4-bit NF4 on CUDA by default?
     description: str
 
 
@@ -39,6 +40,13 @@ class ModelSpec:
 # cache, and framework overhead. The 4-bit column applies only on CUDA
 # with bitsandbytes installed; MPS (Mac) and CPU paths use the fp16/fp32
 # column since bitsandbytes doesn't support them.
+#
+# Quantization policy: the small models (tiny/small) already fit
+# comfortably in 4 GB at fp16, so we run them full-precision by default —
+# quantization accuracy loss hurts them more than it helps memory-wise.
+# The bigger tiers (medium/large/alt) default to 4-bit on CUDA so a 6 GB
+# VRAM card fits every option. Users can override either direction with
+# --no-quantize on the CLI.
 MODEL_TIERS: Dict[str, ModelSpec] = {
     "tiny": ModelSpec(
         tier="tiny",
@@ -47,7 +55,8 @@ MODEL_TIERS: Dict[str, ModelSpec] = {
         ram_4bit_gb=0.4,
         ram_fp16_gb=1.2,
         family="qwen2.5-coder",
-        description="Fastest option. Runs on any laptop CPU.",
+        quantize_by_default=False,
+        description="Fastest option. Runs full-precision on any laptop.",
     ),
     "small": ModelSpec(
         tier="small",
@@ -56,7 +65,10 @@ MODEL_TIERS: Dict[str, ModelSpec] = {
         ram_4bit_gb=1.1,
         ram_fp16_gb=3.2,
         family="qwen2.5-coder",
-        description="Recommended balance. CPU-runnable, real code reasoning.",
+        quantize_by_default=False,
+        description=(
+            "Recommended balance. Runs full-precision; fits in 4 GB "
+            "of VRAM."),
     ),
     "medium": ModelSpec(
         tier="medium",
@@ -65,7 +77,10 @@ MODEL_TIERS: Dict[str, ModelSpec] = {
         ram_4bit_gb=2.1,
         ram_fp16_gb=6.5,
         family="qwen2.5-coder",
-        description="Consumer GPU sweet spot. Fits in 6GB VRAM at 4-bit.",
+        quantize_by_default=True,
+        description=(
+            "Consumer GPU sweet spot. 4-bit by default so it fits in "
+            "6 GB VRAM."),
     ),
     "large": ModelSpec(
         tier="large",
@@ -74,9 +89,10 @@ MODEL_TIERS: Dict[str, ModelSpec] = {
         ram_4bit_gb=4.5,
         ram_fp16_gb=14.0,
         family="qwen2.5-coder",
+        quantize_by_default=True,
         description=(
-            "Best quality in the menu. Fits in 6GB VRAM at 4-bit "
-            "(tight) or 8GB comfortably."),
+            "Best quality in the menu. 4-bit by default (fits in 6 GB "
+            "VRAM tight, 8 GB comfortably); full-precision needs 16 GB+."),
     ),
     "alt": ModelSpec(
         tier="alt",
@@ -85,9 +101,10 @@ MODEL_TIERS: Dict[str, ModelSpec] = {
         ram_4bit_gb=1.6,
         ram_fp16_gb=4.5,
         family="codegemma",
+        quantize_by_default=True,
         description=(
             "Cross-family control (CodeGemma-2B-it) for the comparison "
-            "matrix."),
+            "matrix. 4-bit by default."),
     ),
 }
 

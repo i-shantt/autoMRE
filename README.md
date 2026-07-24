@@ -142,15 +142,15 @@ AutoRepro-Min separates the *search structure* (how to explore candidate reducti
 
 **LLM model tiers** (all locally-run open weights, no API keys):
 
-| Tier | Model | Params | 4-bit VRAM (CUDA) | fp16 RAM (MPS/CPU) |
-|------|-------|--------|-------------------|--------------------|
-| `tiny` | Qwen2.5-Coder-0.5B-Instruct | 0.5B | ~0.4 GB | ~1.2 GB |
-| `small` | Qwen2.5-Coder-1.5B-Instruct | 1.5B | ~1.1 GB | ~3.2 GB |
-| `medium` | Qwen2.5-Coder-3B-Instruct | 3B | ~2.1 GB | ~6.5 GB |
-| `large` | Qwen2.5-Coder-7B-Instruct | 7B | ~4.5 GB | ~14 GB |
-| `alt` | CodeGemma-2B-it | 2B | ~1.6 GB | ~4.5 GB |
+| Tier | Model | Params | Default precision on CUDA | Loaded size |
+|------|-------|--------|---------------------------|-------------|
+| `tiny` | Qwen2.5-Coder-0.5B-Instruct | 0.5B | fp16 (full) | ~1.2 GB |
+| `small` | Qwen2.5-Coder-1.5B-Instruct | 1.5B | fp16 (full) | ~3.2 GB |
+| `medium` | Qwen2.5-Coder-3B-Instruct | 3B | **4-bit NF4** | ~2.1 GB |
+| `large` | Qwen2.5-Coder-7B-Instruct | 7B | **4-bit NF4** | ~4.5 GB |
+| `alt` | CodeGemma-2B-it | 2B | **4-bit NF4** | ~1.6 GB |
 
-Models load in **4-bit NF4** on CUDA (via `bitsandbytes`) by default — the accuracy loss is small (~1%) and it lets a 6 GB VRAM card like a GTX 1660 Ti comfortably fit every tier including `large`. On Apple Silicon (MPS) and CPU, `bitsandbytes` isn't supported so the tool falls back to fp16 (Mac) or fp32 (CPU) automatically. Pass `--no-quantize` to force full precision on CUDA.
+**Quantization policy**: the small tiers (`tiny`, `small`) already fit in 4 GB at fp16, so we run them full-precision — quantization loss hurts small models more than it helps. The bigger tiers (`medium`, `large`, `alt`) default to 4-bit NF4 via `bitsandbytes` on CUDA so a 6 GB VRAM card fits every option. Pass `--no-quantize` to force full precision on the quantized tiers. On Apple Silicon (MPS) and CPU, `bitsandbytes` isn't supported so every tier runs at fp16/fp32 respectively.
 
 ### Hardware guidance
 

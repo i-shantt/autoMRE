@@ -197,15 +197,20 @@ def _cuda_supports_bf16() -> bool:
         return False
 
 
-def _load_kwargs(device: str, quantize: bool, verbose: bool):
+def _load_kwargs(device: str, quantize_requested: bool, spec, verbose: bool):
     """Return kwargs for AutoModelForCausalLM.from_pretrained().
 
     Selection policy:
-      * cuda + bitsandbytes available + quantize=True  ->  4-bit NF4
-        (compute_dtype bf16 on Ampere+, fp16 on Turing)
-      * cuda without bitsandbytes  ->  fp16
-      * mps  ->  fp16
-      * cpu  ->  fp32
+      * quantize_requested is True (the CLI default) AND the model's own
+        spec.quantize_by_default is True AND we're on CUDA with bnb
+        available  ->  4-bit NF4 (compute bf16 on Ampere+, fp16 on Turing)
+      * everything else  ->  full precision for the device
+                             (fp32 on CPU, fp16 on MPS/CUDA)
+
+    So `tiny`/`small` load full-precision by default (they fit anywhere
+    at fp16 and quantization loss hurts them more), while
+    `medium`/`large`/`alt` load 4-bit by default. --no-quantize forces
+    full precision on all tiers.
     """
     import torch  # lazy
 
@@ -217,7 +222,8 @@ def _load_kwargs(device: str, quantize: bool, verbose: bool):
         return {"torch_dtype": torch.float16}, "fp16/mps"
 
     # device == "cuda"
-    if quantize:
+    should_quantize = quantize_requested and spec.quantize_by_default
+    if should_quantize:
         try:
             from transformers import BitsAndBytesConfig
             import bitsandbytes  # noqa: F401 -- import check
@@ -243,9 +249,13 @@ def _load_kwargs(device: str, quantize: bool, verbose: bool):
                 f"4-bit NF4 (compute {compute_dtype})",
             )
 
-    # Non-quantized CUDA fallback.
+    # Full-precision CUDA path (either --no-quantize, small model, or
+    # bitsandbytes unavailable).
     dtype = torch.bfloat16 if _cuda_supports_bf16() else torch.float16
-    return {"torch_dtype": dtype}, f"{dtype}/cuda"
+    label = f"{dtype}/cuda"
+    if quantize_requested and not spec.quantize_by_default:
+        label += " (small model — quantization skipped by policy)"
+    return {"torch_dtype": dtype}, label
 
 
 def build_llm_backend(model: Optional[str] = None,
@@ -284,7 +294,7 @@ def build_llm_backend(model: Optional[str] = None,
         return None
 
     dev = _select_device(device)
-    load_kwargs, dtype_label = _load_kwargs(dev, quantize, verbose)
+    load_kwargs, dtype_label = _load_kwargs(dev, quantize, spec, verbose)
     if verbose:
         print(f"[build_llm_backend] loading {spec.hf_id} on {dev} "
               f"({dtype_label})...")
