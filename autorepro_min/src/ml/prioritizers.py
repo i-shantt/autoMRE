@@ -157,11 +157,14 @@ class LLMPrioritizer:
 
 
 def build_prioritizer(kind: str = "heuristic", *, model: Optional[str] = None,
+                      quantize: bool = True,
                       verbose: bool = False) -> Prioritizer:
     """Factory used by the CLI and MultiFileDebugger.
 
     kind : "heuristic" (default) or "llm".
     model: name from ml.model_registry.MODEL_TIERS (only used when kind="llm").
+    quantize: on CUDA, load the LLM in 4-bit NF4 via bitsandbytes. Ignored
+              on MPS/CPU (bitsandbytes is CUDA-only). Default True.
     """
     kind = (kind or "heuristic").lower()
     if kind == "heuristic":
@@ -169,7 +172,8 @@ def build_prioritizer(kind: str = "heuristic", *, model: Optional[str] = None,
     if kind == "llm":
         # Import lazily so the default install never touches torch/transformers.
         from .llm_backend import build_llm_backend
-        backend = build_llm_backend(model=model, verbose=verbose)
+        backend = build_llm_backend(model=model, quantize=quantize,
+                                    verbose=verbose)
         if backend is None:
             if verbose:
                 print("[build_prioritizer] LLM backend unavailable; "

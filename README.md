@@ -142,13 +142,22 @@ AutoRepro-Min separates the *search structure* (how to explore candidate reducti
 
 **LLM model tiers** (all locally-run open weights, no API keys):
 
-| Tier | Model | Params | RAM | Target hardware |
-|------|-------|--------|-----|-----------------|
-| `tiny` | Qwen2.5-Coder-0.5B-Instruct | 0.5B | ~1.5 GB | CPU laptop |
-| `small` | Qwen2.5-Coder-1.5B-Instruct | 1.5B | ~3.5 GB | CPU / small GPU |
-| `medium` | Qwen2.5-Coder-3B-Instruct | 3B | ~7 GB | Consumer GPU |
-| `large` | Qwen2.5-Coder-7B-Instruct | 7B | ~15 GB | Prosumer GPU (16GB+) |
-| `alt` | CodeGemma-2B-it | 2B | ~5 GB | Cross-family control |
+| Tier | Model | Params | 4-bit VRAM (CUDA) | fp16 RAM (MPS/CPU) |
+|------|-------|--------|-------------------|--------------------|
+| `tiny` | Qwen2.5-Coder-0.5B-Instruct | 0.5B | ~0.4 GB | ~1.2 GB |
+| `small` | Qwen2.5-Coder-1.5B-Instruct | 1.5B | ~1.1 GB | ~3.2 GB |
+| `medium` | Qwen2.5-Coder-3B-Instruct | 3B | ~2.1 GB | ~6.5 GB |
+| `large` | Qwen2.5-Coder-7B-Instruct | 7B | ~4.5 GB | ~14 GB |
+| `alt` | CodeGemma-2B-it | 2B | ~1.6 GB | ~4.5 GB |
+
+Models load in **4-bit NF4** on CUDA (via `bitsandbytes`) by default — the accuracy loss is small (~1%) and it lets a 6 GB VRAM card like a GTX 1660 Ti comfortably fit every tier including `large`. On Apple Silicon (MPS) and CPU, `bitsandbytes` isn't supported so the tool falls back to fp16 (Mac) or fp32 (CPU) automatically. Pass `--no-quantize` to force full precision on CUDA.
+
+### Hardware guidance
+
+- **Apple Silicon Mac (M1/M2/M3/M4):** `tiny` and `small` are snappy; `medium` is usable (10–20s per ranking); `large` only if you have M2 Max or better. Uses MPS automatically.
+- **NVIDIA GTX 1660 Ti / RTX 20-series (6 GB):** every tier fits at 4-bit. Recommended: `small` for iteration, `medium` for real runs.
+- **RTX 30-series and later (8 GB+):** any tier, no compromises.
+- **CPU only:** `tiny` is fine, `small` is slow but usable, `medium+` will exhaust your patience.
 
 If `.[llm]` isn't installed or a requested model can't be loaded, the tool logs a warning and falls back to the heuristic — the reducer never fails because the ML side failed.
 

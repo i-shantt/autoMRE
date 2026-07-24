@@ -43,6 +43,7 @@ def cmd_reduce(args):
         prioritizer = build_prioritizer(
             kind=getattr(args, "prioritizer", "heuristic"),
             model=getattr(args, "model", None),
+            quantize=not getattr(args, "no_quantize", False),
             verbose=args.verbose,
         )
         reducer = HybridDeltaDebugger(prioritizer=prioritizer,
@@ -236,6 +237,7 @@ def cmd_reduce_project(args):
     prioritizer = build_prioritizer(
         kind=getattr(args, "prioritizer", "heuristic"),
         model=getattr(args, "model", None),
+        quantize=not getattr(args, "no_quantize", False),
         verbose=args.verbose,
     )
     debugger = MultiFileDebugger(verbose=args.verbose,
@@ -344,6 +346,9 @@ Examples:
                                        'large', 'alt'],
                               help='Model tier when --prioritizer=llm '
                                    '(default: small)')
+    reduce_parser.add_argument('--no-quantize', action='store_true',
+                              help='Disable 4-bit CUDA quantization '
+                                   '(load in fp16/bf16 instead)')
     reduce_parser.add_argument('-v', '--verbose', action='store_true',
                               help='Verbose output')
 
@@ -399,6 +404,9 @@ Examples:
                     choices=['tiny', 'small', 'medium', 'large', 'alt'],
                     help='Model tier when --prioritizer=llm '
                          '(default: small)')
+    rp.add_argument('--no-quantize', action='store_true',
+                    help='Disable 4-bit CUDA quantization '
+                         '(load in fp16/bf16 instead)')
     rp.add_argument('-v', '--verbose', action='store_true',
                     help='Verbose progress output')
 

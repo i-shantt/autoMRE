@@ -187,10 +187,81 @@ def _select_device(preference: Optional[str] = None) -> str:
     return "cpu"
 
 
+def _cuda_supports_bf16() -> bool:
+    """True on Ampere (compute 8.0) and later; False on Turing / older."""
+    import torch  # lazy
+    try:
+        major, _ = torch.cuda.get_device_capability()
+        return major >= 8
+    except Exception:
+        return False
+
+
+def _load_kwargs(device: str, quantize: bool, verbose: bool):
+    """Return kwargs for AutoModelForCausalLM.from_pretrained().
+
+    Selection policy:
+      * cuda + bitsandbytes available + quantize=True  ->  4-bit NF4
+        (compute_dtype bf16 on Ampere+, fp16 on Turing)
+      * cuda without bitsandbytes  ->  fp16
+      * mps  ->  fp16
+      * cpu  ->  fp32
+    """
+    import torch  # lazy
+
+    if device == "cpu":
+        return {"torch_dtype": torch.float32}, "fp32/cpu"
+
+    if device == "mps":
+        # bitsandbytes doesn't support MPS. fp16 is the reasonable default.
+        return {"torch_dtype": torch.float16}, "fp16/mps"
+
+    # device == "cuda"
+    if quantize:
+        try:
+            from transformers import BitsAndBytesConfig
+            import bitsandbytes  # noqa: F401 -- import check
+        except ImportError:
+            if verbose:
+                print("[llm_backend] bitsandbytes not installed; "
+                      "loading in fp16 instead. Install with "
+                      "`pip install bitsandbytes` for 4-bit.")
+        else:
+            compute_dtype = (torch.bfloat16 if _cuda_supports_bf16()
+                             else torch.float16)
+            bnb = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_compute_dtype=compute_dtype,
+            )
+            # device_map="auto" lets accelerate/bitsandbytes place the
+            # quantized shards; passing .to("cuda") after 4-bit load is
+            # unsupported.
+            return (
+                {"quantization_config": bnb, "device_map": "auto"},
+                f"4-bit NF4 (compute {compute_dtype})",
+            )
+
+    # Non-quantized CUDA fallback.
+    dtype = torch.bfloat16 if _cuda_supports_bf16() else torch.float16
+    return {"torch_dtype": dtype}, f"{dtype}/cuda"
+
+
 def build_llm_backend(model: Optional[str] = None,
                       device: Optional[str] = None,
+                      quantize: bool = True,
                       verbose: bool = False) -> Optional[HFBackend]:
     """Try to build an HFBackend for the given tier.
+
+    Args:
+        model: tier name from model_registry (default: "small").
+        device: force a torch device; auto-detected if None.
+        quantize: on CUDA, load in 4-bit NF4 via bitsandbytes when
+            available. Ignored on MPS/CPU (bitsandbytes doesn't support
+            them). Default True — 4-bit code-model accuracy loss is
+            small enough that there's no reason to pay full precision.
+        verbose: print progress + selection reasoning.
 
     Returns None (with a warning) if torch/transformers isn't installed
     or the model can't be loaded — callers should treat None as
@@ -213,17 +284,19 @@ def build_llm_backend(model: Optional[str] = None,
         return None
 
     dev = _select_device(device)
+    load_kwargs, dtype_label = _load_kwargs(dev, quantize, verbose)
     if verbose:
-        print(f"[build_llm_backend] loading {spec.hf_id} on {dev}...")
+        print(f"[build_llm_backend] loading {spec.hf_id} on {dev} "
+              f"({dtype_label})...")
 
     try:
         tokenizer = AutoTokenizer.from_pretrained(spec.hf_id)
-        import torch  # lazy again for dtype
         model_obj = AutoModelForCausalLM.from_pretrained(
-            spec.hf_id,
-            torch_dtype=torch.bfloat16 if dev != "cpu" else torch.float32,
-        )
-        model_obj.to(dev)
+            spec.hf_id, **load_kwargs)
+        # 4-bit loads use device_map and are already placed. For everything
+        # else, move to the target device.
+        if "device_map" not in load_kwargs:
+            model_obj.to(dev)
         model_obj.eval()
     except Exception as exc:
         if verbose:

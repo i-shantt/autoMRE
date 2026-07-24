@@ -29,17 +29,23 @@ class ModelSpec:
     tier: str                    # short user-facing name
     hf_id: str                   # Hugging Face repository id
     params_b: float              # parameter count in billions
-    approx_ram_gb: float         # rough loaded footprint (bf16)
+    ram_4bit_gb: float           # loaded footprint w/ NF4 quantization (CUDA)
+    ram_fp16_gb: float           # loaded footprint at fp16 (MPS / non-quant)
     family: str                  # "qwen2.5-coder" or "codegemma"
     description: str
 
 
+# Sizes below are ROUGH — actual footprint depends on the tokenizer, KV
+# cache, and framework overhead. The 4-bit column applies only on CUDA
+# with bitsandbytes installed; MPS (Mac) and CPU paths use the fp16/fp32
+# column since bitsandbytes doesn't support them.
 MODEL_TIERS: Dict[str, ModelSpec] = {
     "tiny": ModelSpec(
         tier="tiny",
         hf_id="Qwen/Qwen2.5-Coder-0.5B-Instruct",
         params_b=0.5,
-        approx_ram_gb=1.5,
+        ram_4bit_gb=0.4,
+        ram_fp16_gb=1.2,
         family="qwen2.5-coder",
         description="Fastest option. Runs on any laptop CPU.",
     ),
@@ -47,7 +53,8 @@ MODEL_TIERS: Dict[str, ModelSpec] = {
         tier="small",
         hf_id="Qwen/Qwen2.5-Coder-1.5B-Instruct",
         params_b=1.5,
-        approx_ram_gb=3.5,
+        ram_4bit_gb=1.1,
+        ram_fp16_gb=3.2,
         family="qwen2.5-coder",
         description="Recommended balance. CPU-runnable, real code reasoning.",
     ),
@@ -55,23 +62,28 @@ MODEL_TIERS: Dict[str, ModelSpec] = {
         tier="medium",
         hf_id="Qwen/Qwen2.5-Coder-3B-Instruct",
         params_b=3.0,
-        approx_ram_gb=7.0,
+        ram_4bit_gb=2.1,
+        ram_fp16_gb=6.5,
         family="qwen2.5-coder",
-        description="Consumer GPU sweet spot. Notably stronger than small.",
+        description="Consumer GPU sweet spot. Fits in 6GB VRAM at 4-bit.",
     ),
     "large": ModelSpec(
         tier="large",
         hf_id="Qwen/Qwen2.5-Coder-7B-Instruct",
         params_b=7.0,
-        approx_ram_gb=15.0,
+        ram_4bit_gb=4.5,
+        ram_fp16_gb=14.0,
         family="qwen2.5-coder",
-        description="Best quality in the menu. Needs 16GB+ VRAM for speed.",
+        description=(
+            "Best quality in the menu. Fits in 6GB VRAM at 4-bit "
+            "(tight) or 8GB comfortably."),
     ),
     "alt": ModelSpec(
         tier="alt",
         hf_id="google/codegemma-2b-it",
         params_b=2.0,
-        approx_ram_gb=5.0,
+        ram_4bit_gb=1.6,
+        ram_fp16_gb=4.5,
         family="codegemma",
         description=(
             "Cross-family control (CodeGemma-2B-it) for the comparison "

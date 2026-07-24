@@ -29,11 +29,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Local open-source LLM prioritization. Pulls in torch and transformers.
+# Local open-source LLM prioritization. Pulls in torch, transformers, and
+# bitsandbytes for 4-bit quantization on CUDA (bitsandbytes is CUDA-only —
+# a harmless dead weight on Mac/CPU installs but doesn't break anything).
 llm = [
     "torch>=2.1",
     "transformers>=4.44",
     "accelerate>=0.30",
+    "bitsandbytes>=0.43 ; platform_system != 'Darwin'",
 ]
 # Fine-tuned classifier prioritizer (stretch goal in the roadmap).
 learned = [
