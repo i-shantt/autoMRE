@@ -145,21 +145,22 @@ class ExecutionTracer:
             cov = coverage.Coverage(data_file=str(coverage_file))
             cov.load()
 
-            # Get all files analyzed
-            files = cov.get_data().measured_files()
+            data = cov.get_data()
+            files = data.measured_files()
 
             for file_path in files:
                 try:
-                    analysis = cov.analysis2(file_path)
-                    # analysis[1] contains executed lines
-                    executed = set(analysis[1])
+                    # data.lines() returns lines actually executed.
+                    # (Previously used analysis2()[1], which returns all
+                    # executable statements — not what we want.)
+                    executed = data.lines(file_path)
+                    executed = set(executed) if executed else set()
                     if executed:
                         executed_lines[file_path] = executed
                 except Exception:
-                    # Skip files that can't be analyzed
                     continue
 
-        except Exception as e:
+        except Exception:
             # Coverage parsing failed, return empty
             pass
 

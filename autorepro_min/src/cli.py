@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from parser import PythonParser
 from tracer import ExecutionTracer
 from validator import Validator
 from reducer import HybridDeltaDebugger, LineLevelDeltaDebugger
+from multi_file import MultiFileDebugger
 
 
 def cmd_reduce(args):
@@ -189,6 +191,65 @@ def cmd_trace(args):
     return 0
 
 
+def cmd_reduce_project(args):
+    """Execute the reduce-project command (multi-file MF-HDD-E)."""
+    project_dir = Path(args.project).resolve()
+
+    if not project_dir.exists() or not project_dir.is_dir():
+        print(f"Error: project directory not found: {project_dir}",
+              file=sys.stderr)
+        return 1
+
+    if not args.command:
+        print("Error: --command is required (the reproduction command, e.g. "
+              "\"python main.py\")", file=sys.stderr)
+        return 1
+
+    test_command = args.command.split()
+
+    # Work on a copy unless --in-place was requested.
+    if args.in_place:
+        work_dir = project_dir
+    else:
+        if args.output:
+            work_dir = Path(args.output).resolve()
+        else:
+            work_dir = project_dir.parent / f"{project_dir.name}_minimized"
+        if work_dir.exists():
+            if args.force:
+                shutil.rmtree(work_dir)
+            else:
+                print(f"Error: output directory already exists: {work_dir}. "
+                      "Use --force to overwrite or pick another --output.",
+                      file=sys.stderr)
+                return 1
+        shutil.copytree(project_dir, work_dir)
+        print(f"Working on copy at: {work_dir}")
+
+    debugger = MultiFileDebugger(verbose=args.verbose,
+                                 timeout=args.timeout,
+                                 match_strategy=args.strategy)
+    result = debugger.reduce_project(work_dir, test_command)
+
+    print()
+    print("=" * 60)
+    print("MULTI-FILE REDUCTION RESULTS")
+    print("=" * 60)
+    print(f"Output directory:  {result.project_dir}")
+    print(f"Files:             {result.original_file_count} -> "
+          f"{result.final_file_count} "
+          f"({result.file_reduction_rate*100:.1f}% removed)")
+    print(f"Lines:             {result.original_line_count} -> "
+          f"{result.final_line_count} "
+          f"({result.line_reduction_rate*100:.1f}% removed)")
+    print(f"Unreachable dropped: {len(result.unreachable_deleted)}")
+    print(f"Imported-only dropped: {len(result.imported_deleted)}")
+    print(f"Inlined away:      {len(result.inlined_away)}")
+    print(f"Total queries:     {result.total_queries}")
+    print(f"Time:              {result.time_seconds:.2f}s")
+    return 0
+
+
 def cmd_parse(args):
     """Execute the parse command."""
     file_path = Path(args.file)
@@ -290,6 +351,27 @@ Examples:
     parse_parser.add_argument('-v', '--verbose', action='store_true',
                              help='Verbose output')
 
+    # Reduce-project command (multi-file MF-HDD-E)
+    rp = subparsers.add_parser(
+        'reduce-project',
+        help='Minimize a multi-file Python project (MF-HDD-E)')
+    rp.add_argument('project', help='Path to the project directory')
+    rp.add_argument('-c', '--command', required=True,
+                    help='Reproduction command, e.g. "python main.py"')
+    rp.add_argument('-o', '--output',
+                    help='Output directory (default: <project>_minimized/)')
+    rp.add_argument('--in-place', action='store_true',
+                    help='Mutate the project directory directly (dangerous)')
+    rp.add_argument('--force', action='store_true',
+                    help='Overwrite --output if it already exists')
+    rp.add_argument('-t', '--timeout', type=int, default=60,
+                    help='Per-run reproduction timeout in seconds')
+    rp.add_argument('-s', '--strategy', default='error_type',
+                    choices=['exact', 'error_type', 'error_message'],
+                    help='Behavior-matching strategy')
+    rp.add_argument('-v', '--verbose', action='store_true',
+                    help='Verbose progress output')
+
     args = parser.parse_args()
 
     if not args.subcommand:
@@ -302,6 +384,7 @@ Examples:
         'validate': cmd_validate,
         'trace': cmd_trace,
         'parse': cmd_parse,
+        'reduce-project': cmd_reduce_project,
     }
 
     return commands[args.subcommand](args)
