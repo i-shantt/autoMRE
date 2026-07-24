@@ -20,6 +20,7 @@ from tracer import ExecutionTracer
 from validator import Validator
 from reducer import HybridDeltaDebugger, LineLevelDeltaDebugger
 from multi_file import MultiFileDebugger
+from ml import build_prioritizer
 
 
 def cmd_reduce(args):
@@ -39,7 +40,13 @@ def cmd_reduce(args):
 
     # Create reducer
     if args.algorithm == "hdd-e":
-        reducer = HybridDeltaDebugger(verbose=args.verbose)
+        prioritizer = build_prioritizer(
+            kind=getattr(args, "prioritizer", "heuristic"),
+            model=getattr(args, "model", None),
+            verbose=args.verbose,
+        )
+        reducer = HybridDeltaDebugger(prioritizer=prioritizer,
+                                      verbose=args.verbose)
     else:
         reducer = LineLevelDeltaDebugger(verbose=args.verbose)
 
@@ -226,9 +233,15 @@ def cmd_reduce_project(args):
         shutil.copytree(project_dir, work_dir)
         print(f"Working on copy at: {work_dir}")
 
+    prioritizer = build_prioritizer(
+        kind=getattr(args, "prioritizer", "heuristic"),
+        model=getattr(args, "model", None),
+        verbose=args.verbose,
+    )
     debugger = MultiFileDebugger(verbose=args.verbose,
                                  timeout=args.timeout,
-                                 match_strategy=args.strategy)
+                                 match_strategy=args.strategy,
+                                 prioritizer=prioritizer)
     result = debugger.reduce_project(work_dir, test_command)
 
     print()
@@ -322,6 +335,15 @@ Examples:
     reduce_parser.add_argument('-a', '--algorithm', default='hdd-e',
                               choices=['hdd-e', 'ddmin'],
                               help='Reduction algorithm (default: hdd-e)')
+    reduce_parser.add_argument('--prioritizer', default='heuristic',
+                              choices=['heuristic', 'llm'],
+                              help='Candidate prioritization strategy '
+                                   '(default: heuristic)')
+    reduce_parser.add_argument('--model', default=None,
+                              choices=['tiny', 'small', 'medium',
+                                       'large', 'alt'],
+                              help='Model tier when --prioritizer=llm '
+                                   '(default: small)')
     reduce_parser.add_argument('-v', '--verbose', action='store_true',
                               help='Verbose output')
 
@@ -369,6 +391,14 @@ Examples:
     rp.add_argument('-s', '--strategy', default='error_type',
                     choices=['exact', 'error_type', 'error_message'],
                     help='Behavior-matching strategy')
+    rp.add_argument('--prioritizer', default='heuristic',
+                    choices=['heuristic', 'llm'],
+                    help='Candidate prioritization strategy '
+                         '(default: heuristic)')
+    rp.add_argument('--model', default=None,
+                    choices=['tiny', 'small', 'medium', 'large', 'alt'],
+                    help='Model tier when --prioritizer=llm '
+                         '(default: small)')
     rp.add_argument('-v', '--verbose', action='store_true',
                     help='Verbose progress output')
 

@@ -1,41 +1,55 @@
 # AutoRepro-Min: Automated Bug Reproduction Minimization
 
-A Python tool for automatically minimizing bug-triggering code while preserving reproduction capability.
+A Python tool for automatically minimizing bug-triggering code while preserving reproduction capability. Works on both **single files** and **whole multi-file projects**, with an optional **local, open-source LLM** to guide the reduction.
 
 ## Overview
 
-When developers receive bug reports, they often contain large amounts of code spread across multiple files. Manually identifying the minimal subset that reproduces the bug is time-consuming. AutoRepro-Min automates this process using **Hybrid Delta Debugging (HDD-E)** - a novel algorithm that combines:
+When developers receive bug reports, they often contain large amounts of code spread across multiple files. Manually identifying the minimal subset that reproduces the bug is time-consuming. AutoRepro-Min automates this process with two layered algorithms:
 
-- **Hierarchical Delta Debugging**: AST-aware structural reduction
-- **Execution-Guided Prioritization**: Coverage data to prioritize cold code removal
-- **Multi-Granularity Reduction**: Module → Class → Function → Statement
+- **HDD-E** (Hybrid Delta Debugging with Execution guidance) — the single-file core: AST-aware hierarchical reduction using tree-sitter, prioritized by coverage.py execution data.
+- **MF-HDD-E** — the multi-file extension: analyzes a project's import graph, deletes unreachable files, inlines chained dependencies, then applies HDD-E per surviving file with whole-project validation.
+
+Both algorithms use a pluggable **prioritizer** — the strategy that decides which candidate code unit to try removing next. Two ship today:
+
+- `--prioritizer=heuristic` (default) — cold-code-first, deterministic, zero dependencies.
+- `--prioritizer=llm --model={tiny,small,medium,large,alt}` — a locally-run open-source coder LLM (Qwen2.5-Coder family + CodeGemma-2B) reads the error and ranks candidates by "least likely relevant to the bug." No API keys, no billing — you pick a model that fits your hardware.
 
 ## Quick Start
 
 ### Installation
 
 ```bash
-# Clone the repository
-git clone <repository-url>
+git clone https://github.com/i-shantt/autorepro-min
 cd autorepro-min
 
-# Install dependencies
-pip install tree-sitter tree-sitter-python coverage
+# Core install (heuristic prioritizer, no ML dependencies)
+pip install .
+
+# Add local open-source LLM prioritizer
+pip install .[llm]
+
+# Add benchmarking + matplotlib comparison charts
+pip install .[bench]
 ```
+
+The `[llm]` extra pulls in `torch`, `transformers`, and `accelerate`. The core install is intentionally lightweight so the tool is usable even on machines that can't run local LLMs.
 
 ### Usage
 
 ```bash
-# Reduce a single Python file
+# Single-file reduction (heuristic — default)
 python autorepro_min.py reduce bug.py -o bug.min.py -v
 
-# Reduce with custom test command
-python autorepro_min.py reduce test_bug.py -c "pytest test_bug.py -v"
+# Whole-project reduction (multi-file MF-HDD-E)
+python autorepro_min.py reduce-project my_project/ -c "python main.py" -v
 
-# Trace execution
+# Same, but with an LLM-guided prioritizer (needs pip install .[llm])
+python autorepro_min.py reduce-project my_project/ \
+    -c "python main.py" \
+    --prioritizer llm --model small -v
+
+# Trace / validate helpers
 python autorepro_min.py trace bug.py
-
-# Validate minimized code
 python autorepro_min.py validate bug.min.py -r bug.py
 ```
 
@@ -109,34 +123,65 @@ if __name__ == "__main__":
 
 ## Algorithms
 
-AutoRepro-Min implements multiple reduction algorithms:
+AutoRepro-Min separates the *search structure* (how to explore candidate reductions) from the *prioritization strategy* (which candidate to try next). Both are pluggable.
+
+**Search structures:**
 
 | Algorithm | Description | Best For |
 |-----------|-------------|----------|
-| **hdd-e** (default) | Hybrid Delta Debugging with Execution guidance | Balanced speed/reduction |
-| **ddmin** | Vanilla line-level delta debugging | Maximum reduction (slow) |
-| **syntax** | AST-guided without execution data | Fast, moderate reduction |
-| **random** | Random unit removal | Sanity check baseline |
+| `hdd-e` (default) | Hybrid Delta Debugging with Execution guidance | Single-file bugs |
+| `mf-hdd-e` (`reduce-project`) | Multi-file: import-graph analysis + inlining + per-file HDD-E | Whole projects |
+| `ddmin` | Vanilla line-level delta debugging | Maximum reduction, slow |
+
+**Prioritization strategies:**
+
+| Strategy | Description | Extras |
+|----------|-------------|--------|
+| `heuristic` (default) | Cold-code-first, size-descending. Deterministic, zero deps. | none |
+| `llm` | Local open-source coder LLM ranks candidates from stack trace | `pip install .[llm]` |
+
+**LLM model tiers** (all locally-run open weights, no API keys):
+
+| Tier | Model | Params | RAM | Target hardware |
+|------|-------|--------|-----|-----------------|
+| `tiny` | Qwen2.5-Coder-0.5B-Instruct | 0.5B | ~1.5 GB | CPU laptop |
+| `small` | Qwen2.5-Coder-1.5B-Instruct | 1.5B | ~3.5 GB | CPU / small GPU |
+| `medium` | Qwen2.5-Coder-3B-Instruct | 3B | ~7 GB | Consumer GPU |
+| `large` | Qwen2.5-Coder-7B-Instruct | 7B | ~15 GB | Prosumer GPU (16GB+) |
+| `alt` | CodeGemma-2B-it | 2B | ~5 GB | Cross-family control |
+
+If `.[llm]` isn't installed or a requested model can't be loaded, the tool logs a warning and falls back to the heuristic — the reducer never fails because the ML side failed.
 
 ## Evaluation
 
-Run evaluation on example bugs:
+The repo ships a small, always-reproducible multi-file benchmark (three synthetic bugs under `autorepro_min/examples/multi_file/`) plus a harness for running any prioritizer against it.
 
 ```bash
-# Run single algorithm
-python evaluation/simple_runner.py \
-    --examples ./autorepro_min/examples/simple_single_file \
-    --output results.json \
-    --algorithm hdd-e
+# Heuristic baseline
+python evaluation/bugsinpy_runner.py --prioritizer heuristic
 
-# Compare all algorithms
-python evaluation/simple_runner.py \
-    --examples ./autorepro_min/examples/simple_single_file \
-    --output results.json \
-    --compare-all
+# Local LLM path (requires pip install .[llm])
+python evaluation/bugsinpy_runner.py --prioritizer llm --model small
+
+# Full matrix across all prioritizer configs + comparison table + chart
+python evaluation/model_comparison.py
 ```
 
-### Example Results
+`model_comparison.py` emits `evaluation/results_bench_comparison.md` (a markdown table) and, with matplotlib available, `evaluation/results_bench_comparison.png` (a bar chart of line-reduction / queries / wall-time by prioritizer).
+
+### Baseline: heuristic prioritizer
+
+Numbers from `python evaluation/bugsinpy_runner.py --prioritizer heuristic` on the built-in multi-file dataset (3 bugs):
+
+| Prioritizer | Success | Median file reduction | Median line reduction | Median queries | Median time /bug |
+|-------------|---------|-----------------------|-----------------------|----------------|------------------|
+| heuristic | 3/3 | 75.0% | 61.0% | 9.0 | 0.28s |
+
+The `llm/*` rows land here once you've run `model_comparison.py` with the ML extras installed.
+
+### Legacy single-file baselines
+
+Single-file HDD-E vs. classic algorithms on the two-bug README example set:
 
 | Algorithm | Success | Reduction | Time | Queries |
 |-----------|---------|-----------|------|---------|
@@ -150,18 +195,33 @@ python evaluation/simple_runner.py \
 ```
 autorepro_min/
 ├── src/
-│   ├── parser.py        # AST parsing
-│   ├── tracer.py        # Execution tracing
-│   ├── validator.py     # Behavior validation
-│   ├── reducer.py       # Reduction algorithms
-│   └── cli.py           # Command-line interface
-├── examples/            # Example bugs
-└── tests/               # Unit tests
+│   ├── parser.py            # tree-sitter AST parsing + CodeUnit
+│   ├── tracer.py            # coverage.py execution tracing
+│   ├── validator.py         # single-file behavior oracle
+│   ├── reducer.py           # HDD-E and vanilla ddmin
+│   ├── cli.py               # `reduce` / `reduce-project` / `trace` / ...
+│   ├── multi_file/          # MF-HDD-E multi-file extension
+│   │   ├── dependency_analyzer.py    # Phase 1: import graph + coverage
+│   │   ├── multi_file_validator.py   # whole-project oracle
+│   │   ├── import_inliner.py         # Phase 3: inline used defs
+│   │   └── multi_file_debugger.py    # Phase 1-4 orchestrator
+│   └── ml/                  # Prioritization strategy layer
+│       ├── prioritizers.py           # Heuristic / LLM prioritizers
+│       ├── llm_backend.py            # transformers-based inference
+│       └── model_registry.py         # tiny/small/medium/large/alt
+├── examples/
+│   ├── simple_single_file/  # single-file example bugs
+│   └── multi_file/          # 3 multi-file benchmark bugs
+└── tests/
+    └── test_prioritizers.py # unit tests (no model downloads needed)
 
 evaluation/
-├── metrics.py           # Evaluation metrics
-├── baselines.py         # Baseline algorithms
-└── simple_runner.py     # Evaluation runner
+├── metrics.py               # metric definitions
+├── baselines.py             # ddmin / syntax / random baselines
+├── simple_runner.py         # legacy single-file eval
+├── benchmark_dataset.py     # curated multi-file benchmark
+├── bugsinpy_runner.py       # per-config benchmark harness
+└── model_comparison.py      # matrix runner + comparison chart
 ```
 
 ## Research Background
@@ -177,17 +237,22 @@ See `writing_space/literature_review.md` for full survey.
 
 ## Limitations
 
-- **Single-file focus**: Multi-file inlining not yet implemented
-- **Limited BugsInPy integration**: Full benchmark requires setup scripts
-- **No dependency reconstruction**: Broken references not repaired
+- **Conservative inliner**: refuses to inline modules whose top-level code has side effects, or that importers use via bare `import mod` / `from mod import *`. Preserves correctness at the cost of leaving some files intact.
+- **Python only**: tree-sitter grammar swap is straightforward but not yet wired.
+- **BugsInPy checkout not automated**: the benchmark harness accepts external project directories, but per-bug Python-version and dependency management is left to the user (BugsInPy's own `framework/bin/` scripts).
+- **No dependency reconstruction**: after removal, we don't attempt to repair broken references.
+
+## Roadmap
+
+- Fine-tuned `learned` prioritizer distilled from the LLM run traces (PyTorch, planned).
+- Full BugsInPy adapter with automated per-bug env management.
+- Expression-level intra-statement reduction (fixing the parser's structural-child filter).
+- Parallel validation for faster reduction.
+- Additional language grammars.
 
 ## Contributing
 
-Contributions welcome! Areas for improvement:
-- Multi-file support
-- Expression-level reduction
-- Parallel validation
-- Additional language support
+Contributions welcome — issues and PRs for the roadmap items above are a great place to start.
 
 ## License
 

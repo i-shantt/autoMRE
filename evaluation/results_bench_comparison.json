@@ -1,0 +1,18 @@
+[
+  {
+    "key": "heuristic",
+    "label": "heuristic",
+    "prioritizer": "heuristic",
+    "model": null,
+    "summary": {
+      "n_bugs": 3,
+      "n_success": 3,
+      "success_rate": 1.0,
+      "median_file_reduction": 0.75,
+      "median_line_reduction": 0.6097560975609756,
+      "median_queries": 9,
+      "median_time_seconds": 0.3097350597381592,
+      "total_time_seconds": 0.9958508014678955
+    }
+  }
+]

@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autorepro-min"
+version = "0.2.0"
+description = "Automated multi-file bug reproduction minimization with optional LLM-guided reduction."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "AutoRepro-Min contributors"}]
+keywords = ["delta-debugging", "bug-reproduction", "minimization", "llm", "code-analysis"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "tree-sitter>=0.21",
+    "tree-sitter-python>=0.21",
+    "coverage>=7.0",
+]
+
+[project.optional-dependencies]
+# Local open-source LLM prioritization. Pulls in torch and transformers.
+llm = [
+    "torch>=2.1",
+    "transformers>=4.44",
+    "accelerate>=0.30",
+]
+# Fine-tuned classifier prioritizer (stretch goal in the roadmap).
+learned = [
+    "torch>=2.1",
+    "transformers>=4.44",
+]
+# BugsInPy benchmarking and plots.
+bench = [
+    "matplotlib>=3.7",
+]
+# Everything at once.
+all = [
+    "autorepro-min[llm,learned,bench]",
+]
+dev = [
+    "pytest>=7",
+    "pytest-timeout>=2",
+]
+
+[project.scripts]
+autorepro-min = "cli:main"
+
+[project.urls]
+Repository = "https://github.com/i-shantt/autorepro-min"
+
+[tool.setuptools]
+package-dir = {"" = "autorepro_min/src"}
+
+[tool.setuptools.packages.find]
+where = ["autorepro_min/src"]
+include = ["*"]
+exclude = ["tests*"]

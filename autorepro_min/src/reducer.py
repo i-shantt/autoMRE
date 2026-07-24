@@ -68,6 +68,7 @@ class HybridDeltaDebugger:
     def __init__(self, parser: Optional[PythonParser] = None,
                  tracer: Optional[ExecutionTracer] = None,
                  validator: Optional[Validator] = None,
+                 prioritizer=None,
                  verbose: bool = False):
         """
         Initialize the reducer.
@@ -76,11 +77,17 @@ class HybridDeltaDebugger:
             parser: PythonParser instance
             tracer: ExecutionTracer instance
             validator: Validator instance
+            prioritizer: Prioritizer strategy (defaults to HeuristicPrioritizer)
             verbose: Print progress information
         """
         self.parser = parser or PythonParser()
         self.tracer = tracer or ExecutionTracer()
         self.validator = validator or Validator()
+        if prioritizer is None:
+            from ml.prioritizers import HeuristicPrioritizer
+            prioritizer = HeuristicPrioritizer(self.parser)
+        self.prioritizer = prioritizer
+        self._error_context = None  # populated in reduce()
         self.verbose = verbose
 
     def reduce(self, source_code: str,
@@ -133,6 +140,19 @@ class HybridDeltaDebugger:
         stats.queries += 1
         self.validator.set_original_behavior(orig_trace.output,
                                              0 if orig_trace.success else 1)
+
+        # Build the ErrorContext once — reused by the prioritizer every
+        # iteration. Reads the same fields the Validator already parses so
+        # we don't re-implement error parsing.
+        from ml.prioritizers import ErrorContext
+        beh = self.validator.original_behavior
+        self._error_context = ErrorContext(
+            error_type=getattr(beh, "error_type", None),
+            error_message=getattr(beh, "error_message", None),
+            stack_trace=getattr(beh, "stack_trace", None),
+            raw_output=orig_trace.output,
+            return_code=0 if orig_trace.success else 1,
+        )
 
         if self.verbose:
             print(f"  Original: {original_lines} lines")
@@ -231,8 +251,8 @@ class HybridDeltaDebugger:
         return self.parser.get_flat_units(units)
 
     def _prioritize_units(self, units: List[CodeUnit]) -> List[CodeUnit]:
-        """Prioritize units for reduction (cold first, then by size)."""
-        return self.parser.prioritize_units(units)
+        """Prioritize units for reduction via the configured strategy."""
+        return self.prioritizer.prioritize(units, self._error_context)
 
     def _remove_units(self, source_code: str, units: List[CodeUnit]) -> str:
         """Remove specified units from source code."""

@@ -74,12 +74,19 @@ class MultiFileDebugger:
     """Multi-File Hierarchical Delta Debugging with Execution guidance."""
 
     def __init__(self, verbose: bool = False, timeout: int = 60,
-                 match_strategy: str = "error_type"):
+                 match_strategy: str = "error_type",
+                 prioritizer=None):
         self.verbose = verbose
         self.timeout = timeout
         self.match_strategy = match_strategy
         self.analyzer = DependencyAnalyzer()
         self.inliner = ImportInliner()
+        # Same strategy is reused for every per-file HDD-E in Phase 4 so
+        # the ML backend (if any) loads once, not once per file.
+        if prioritizer is None:
+            from ml.prioritizers import HeuristicPrioritizer
+            prioritizer = HeuristicPrioritizer()
+        self.prioritizer = prioritizer
 
     # ---------------------------------------------------------- public
 
@@ -229,6 +236,7 @@ class MultiFileDebugger:
             original_lines = len(original_source.splitlines())
             per_file_validator = ProjectFileValidator(validator, f)
             reducer = HybridDeltaDebugger(validator=per_file_validator,
+                                          prioritizer=self.prioritizer,
                                           verbose=self.verbose)
             try:
                 result = reducer.reduce(source_code=original_source,
