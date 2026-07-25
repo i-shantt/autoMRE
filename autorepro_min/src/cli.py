@@ -231,6 +231,7 @@ def cmd_reduce_project(args):
         timeout=args.timeout,
         match_strategy=args.strategy,
         aggressive_inline=getattr(args, "aggressive_inline", False),
+        use_coverage_prune=not getattr(args, "no_coverage_prune", False),
     )
     result = debugger.reduce_project(work_dir, test_command)
 
@@ -378,6 +379,9 @@ Examples:
                     help='Inline modules even when they have top-level '
                          'side effects; roll back if the inline breaks '
                          'the bug. Trades safety for tighter reductions.')
+    rp.add_argument('--no-coverage-prune', action='store_true',
+                    help='Disable Phase 4a coverage-based bulk pruning '
+                         '(useful for ablation studies). Default is on.')
     rp.add_argument('-v', '--verbose', action='store_true',
                     help='Verbose progress output')
 

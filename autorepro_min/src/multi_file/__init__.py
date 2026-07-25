@@ -10,12 +10,15 @@ Public entry point: MultiFileDebugger.reduce_project(...)
 
 from __future__ import annotations
 
+from .coverage_pruner import CoveragePruner, PruneResult
 from .dependency_analyzer import DependencyAnalyzer, FileClass, ProjectAnalysis
 from .import_inliner import ImportInliner, InlineResult
 from .multi_file_debugger import MultiFileDebugger, MultiFileReductionResult
 from .multi_file_validator import MultiFileValidator, ProjectFileValidator
 
 __all__ = [
+    "CoveragePruner",
+    "PruneResult",
     "DependencyAnalyzer",
     "FileClass",
     "ProjectAnalysis",

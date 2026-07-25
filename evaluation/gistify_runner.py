@@ -159,7 +159,8 @@ def _count_files_and_lines(root: Path) -> tuple:
 # ------------------------------------------------------------ per-task
 
 def run_task(task: GistifyTask, timeout: int = 120,
-             verbose: bool = False) -> GistifyResult:
+             verbose: bool = False,
+             use_coverage_prune: bool = True) -> GistifyResult:
     print(f"  → cloning/preparing {task.task_id}...", flush=True)
     try:
         source_dir = _ensure_repo(task, verbose=verbose)
@@ -208,6 +209,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
             verbose=verbose, timeout=timeout,
             match_strategy="output_match",
             aggressive_inline=True,
+            use_coverage_prune=use_coverage_prune,
         )
 
         print(f"  → reducing...", flush=True)
@@ -273,11 +275,19 @@ def main() -> int:
         help="Path to a tasks JSON manifest")
     parser.add_argument("--timeout", type=int, default=120,
                         help="Per-command timeout in seconds")
-    parser.add_argument("--output", default=str(
-        _ROOT / "evaluation" / "results_gistify_heuristic.json"),
-        help="Where to write the JSON result")
+    parser.add_argument("--output", default=None,
+        help="Where to write the JSON result. Default depends on flags: "
+             "results_gistify_heuristic.json or "
+             "results_gistify_heuristic_no_coverage.json.")
+    parser.add_argument("--no-coverage-prune", action="store_true",
+        help="Disable coverage-based bulk pruning (ablation).")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
+
+    if args.output is None:
+        suffix = "_no_coverage" if args.no_coverage_prune else ""
+        args.output = str(_ROOT / "evaluation" /
+                          f"results_gistify_heuristic{suffix}.json")
 
     tasks = load_tasks(Path(args.tasks))
     if not tasks:
@@ -287,7 +297,8 @@ def main() -> int:
     results: List[GistifyResult] = []
     for task in tasks:
         print(f"[gistify] {task.task_id}", flush=True)
-        r = run_task(task, timeout=args.timeout, verbose=args.verbose)
+        r = run_task(task, timeout=args.timeout, verbose=args.verbose,
+                     use_coverage_prune=not args.no_coverage_prune)
         icon = "PASS" if r.execution_fidelity else "FAIL"
         if r.error:
             print(f"  {icon} error: {r.error}")
@@ -301,7 +312,10 @@ def main() -> int:
 
     summary = summarize(results)
     payload = {
-        "config": {"prioritizer": "heuristic"},
+        "config": {
+            "prioritizer": "heuristic",
+            "coverage_prune": not args.no_coverage_prune,
+        },
         "summary": summary,
         "runs": [asdict(r) for r in results],
     }

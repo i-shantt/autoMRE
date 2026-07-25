@@ -29,6 +29,7 @@ if str(_SRC_DIR) not in _sys.path:
 
 from reducer import HybridDeltaDebugger
 
+from .coverage_pruner import CoveragePruner
 from .dependency_analyzer import (
     DependencyAnalyzer,
     FileClass,
@@ -75,12 +76,15 @@ class MultiFileDebugger:
 
     def __init__(self, verbose: bool = False, timeout: int = 60,
                  match_strategy: str = "error_type",
-                 aggressive_inline: bool = False):
+                 aggressive_inline: bool = False,
+                 use_coverage_prune: bool = True):
         self.verbose = verbose
         self.timeout = timeout
         self.match_strategy = match_strategy
+        self.use_coverage_prune = use_coverage_prune
         self.analyzer = DependencyAnalyzer()
         self.inliner = ImportInliner(aggressive=aggressive_inline)
+        self.coverage_pruner = CoveragePruner()
 
     # ---------------------------------------------------------- public
 
@@ -228,11 +232,40 @@ class MultiFileDebugger:
         for f in final_survivors:
             original_source = f.read_text()
             original_lines = len(original_source.splitlines())
+
+            # Phase 4a — coverage-based bulk prune (one query per file
+            # to strip everything HDD-E would otherwise discover as
+            # cold, one wasted query per unit).
+            if self.use_coverage_prune:
+                executed = analysis.executed_lines.get(f, set())
+                prune = self.coverage_pruner.prune_source(
+                    original_source, executed)
+                if prune.any_removed:
+                    f.write_text(prune.pruned_source)
+                    queries += 1
+                    if validator.validate():
+                        self._log(
+                            f"  {f.relative_to(project_dir)}: "
+                            f"coverage-pruned {prune.n_removed} "
+                            f"uncovered units "
+                            f"({original_lines} -> "
+                            f"{prune.pruned_line_count} lines)")
+                    else:
+                        # Coverage lied — decorator side effect, dynamic
+                        # dispatch, metaclass wiring, etc. Roll back and
+                        # let HDD-E figure it out the slow way.
+                        f.write_text(original_source)
+                        self._log(
+                            f"  {f.relative_to(project_dir)}: coverage "
+                            "prune broke bug — rolled back")
+
+            # Phase 4b — standard intra-file HDD-E on whatever survived.
+            current_source = f.read_text()
             per_file_validator = ProjectFileValidator(validator, f)
             reducer = HybridDeltaDebugger(validator=per_file_validator,
                                           verbose=self.verbose)
             try:
-                result = reducer.reduce(source_code=original_source,
+                result = reducer.reduce(source_code=current_source,
                                         test_command=None,
                                         cwd=project_dir)
             except Exception as exc:
