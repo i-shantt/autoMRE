@@ -1,212 +1,172 @@
-# AutoRepro-Min: Automated Bug Reproduction Minimization
+# AutoRepro-Min
 
-A Python tool for automatically minimizing bug-triggering code while preserving reproduction capability.
+Automated multi-file bug reproduction minimization for Python projects,
+via coverage-guided empirical delta debugging.
 
-## Overview
+Given a project directory and a reproduction command (typically a
+failing pytest test), AutoRepro-Min iteratively removes files,
+imports, and definitions, validating after each candidate removal
+that the reproduction command still produces the same output. What
+remains is the smallest subset of the original codebase that still
+exhibits the bug.
 
-When developers receive bug reports, they often contain large amounts of code spread across multiple files. Manually identifying the minimal subset that reproduces the bug is time-consuming. AutoRepro-Min automates this process using **Hybrid Delta Debugging (HDD-E)** - a novel algorithm that combines:
+## Pipeline
 
-- **Hierarchical Delta Debugging**: AST-aware structural reduction
-- **Execution-Guided Prioritization**: Coverage data to prioritize cold code removal
-- **Multi-Granularity Reduction**: Module → Class → Function → Statement
+The reducer runs four phases. Each one either eliminates candidates
+in bulk (fast) or one-at-a-time under validation (safe fallback).
 
-## Quick Start
+**Phase 1 — Analysis.** Run the reproduction command once with
+`coverage.py` to record which files and lines executed. Parse each
+file's `import` statements to build a project-local dependency
+graph. Classify every file as `EXECUTED`, `IMPORTED_ONLY`, or
+`UNREACHABLE`.
 
-### Installation
+**Phase 2 — File deletion.**
+- 2a: bulk-delete every `UNREACHABLE` file and validate. If the
+  batch broke the bug (dynamic import etc.), restore and fall back
+  to per-file validated deletion.
+- 2b: probe every `IMPORTED_ONLY` file individually; keep the
+  deletion if the bug still fires.
 
-```bash
-# Clone the repository
-git clone <repository-url>
-cd autorepro-min
+**Phase 3 — Selective inlining.** Walk the surviving dependency
+graph leaves-first. For each file, try to inline its used top-level
+definitions into every importer. With `--aggressive-inline`, retry
+even for files that have top-level side effects and let empirical
+validation catch the failures.
 
-# Install dependencies
-pip install tree-sitter tree-sitter-python coverage
-```
+**Phase 4 — Intra-file reduction.**
+- 4a: coverage-based bulk prune (see below).
+- 4b: hierarchical delta debugging (HDD-E) on what remains.
 
-### Usage
+## Coverage-based pruning (Phase 4a)
 
-```bash
-# Reduce a single Python file
-python autorepro_min.py reduce bug.py -o bug.min.py -v
+Phase 1's per-line coverage tells us exactly which lines executed
+in the original run. After Phases 2 and 3, we re-run coverage
+against the current tree (inlining shifts line numbers and copies
+code into new files), then in each surviving file:
 
-# Reduce with custom test command
-python autorepro_min.py reduce test_bug.py -c "pytest test_bug.py -v"
+- If a top-level definition has zero executed lines, drop it.
+- If a class is partially covered, descend into its methods and
+  drop the ones whose bodies have zero coverage.
+- Never touch statements inside a live function — control-flow
+  surgery is HDD-E's job.
 
-# Trace execution
-python autorepro_min.py trace bug.py
+One validation call per file replaces up to N per-unit queries
+that HDD-E would otherwise burn discovering the same dead code.
+When the removal breaks the bug (decorator side effects, dynamic
+dispatch, metaclass wiring — things static coverage can miss), the
+file is rolled back and HDD-E processes it normally.
 
-# Validate minimized code
-python autorepro_min.py validate bug.min.py -r bug.py
-```
+The pass is on by default. Disable per-run with
+`--no-coverage-prune` on `reduce-project` or the Gistify runner.
 
-### Python API
+## Gistify-style benchmark
 
-```python
-from autorepro_min.src.reducer import HybridDeltaDebugger
+`evaluation/gistify_runner.py` runs the same evaluation shape as
+the Gistify paper (Lee et al., ICLR 2026, arXiv 2510.26790):
+clone a real repo, capture baseline output, reduce, verify
+execution fidelity. The current manifest is 6 pytest tests across
+`psf/requests v2.32.3` and `pallets/flask 3.0.3`.
 
-# Create reducer
-reducer = HybridDeltaDebugger(verbose=True)
+| Configuration              | Fidelity | Single-file | Avg queries | Avg time/task |
+|----------------------------|:--------:|:-----------:|:-----------:|:-------------:|
+| heuristic (Phase 4a off)   | 6/6      | 0/6         | 241         | 51.3s         |
+| heuristic + coverage prune | 6/6      | 0/6         | 244         | 52.0s         |
+| Gistify paper best         | 58.7%    | (their SC)  | —           | —             |
 
-# Reduce code
-with open('bug.py') as f:
-    source_code = f.read()
+**Read these numbers carefully.** The Gistify paper number is a
+directional comparison, not a formal head-to-head:
 
-result = reducer.reduce(source_code)
+- Their test list (25 tests) isn't publicly released, so ours is
+  a custom 6-test subset over the same repos. Ours are pure-Python,
+  hand-picked, and probably easier on average.
+- Their approach *generates* a mimicking single file with an LLM;
+  ours *deletes dead code* under empirical validation. Different
+  mechanism, same execution-fidelity metric.
+- We score 0/6 on their Self-Containment (single-file output)
+  metric because we can only collapse to one file when the reduced
+  project happens to fit in one.
 
-print(f"Original: {result.stats.original_size} lines")
-print(f"Minimized: {result.stats.final_size} lines")
-print(f"Reduction: {result.stats.reduction_rate*100:.1f}%")
+The head-to-head is honest only on Execution Fidelity itself — and
+even there, the sample sizes and test selection differ.
 
-# Save minimized code
-with open('bug.min.py', 'w') as f:
-    f.write(result.minimized_code)
-```
+## What we tried and dropped
 
-## How It Works
+Two earlier iterations of the "prioritization" idea were built,
+benchmarked, and removed. Both stories are here because a portfolio
+project should show the discipline of rejecting things that didn't
+work, not just the ones that did.
 
-1. **Parse**: Build AST and identify removable units (functions, classes, statements)
-2. **Trace**: Run code with coverage to identify executed lines
-3. **Prioritize**: Sort units by execution count (cold first) and size
-4. **Reduce**: Iteratively remove units and validate behavior preservation
-5. **Output**: Return minimized, self-contained reproduction
+**Open-source LLM prioritizer (Qwen 2.5 Coder, 0.5B / 1.5B).**
+Idea: use a code LLM to rank HDD-E's removal candidates so the
+debugger tries the highest-probability-removable ones first. Result:
+byte-identical output to the pure heuristic on all 6 tasks, at 7–12×
+wall-clock overhead. The empirical validator converges on the same
+fixed point regardless of removal order; the LLM saved ~30% of
+validation queries but each query got expensive enough to more than
+wipe out the savings. Code removed on this branch. Prior branch:
+`ml-prioritizer`.
 
-## Example
+**Coverage-based Phase 4a pruning (this branch).** Idea above.
+Result: correctness preserved (still 6/6 fidelity, byte-identical
+output), but slightly *worse* wall-clock (+~1s/task) and slightly
+more queries (+~4/task). Same convergence story: HDD-E was already
+going to reach the same minimum, and the pruner's failed attempts
+(fixture / decorator machinery that coverage can't see) each cost
+one wasted validation. Retained as an off-switch (`--no-coverage-
+prune`) rather than deleted because it's safe and could be a win
+on non-test-file codebases where import-time machinery is less
+prevalent.
 
-**Original Code (45 lines)**:
-```python
-# Unused import
-import json
-
-# Unused function
-def helper(x):
-    return x * 2
-
-# Unused class
-class DataProcessor:
-    def process(self, data):
-        return data.upper()
-
-# The bug
-def trigger_bug():
-    x = 42
-    return len(x)  # TypeError: object of type 'int' has no len()
-
-if __name__ == "__main__":
-    trigger_bug()
-```
-
-**Minimized Code (9 lines)**:
-```python
-def trigger_bug():
-    x = 42
-    return len(x)
-
-if __name__ == "__main__":
-    trigger_bug()
-```
-
-**Reduction**: 80% fewer lines while preserving the same TypeError.
-
-## Algorithms
-
-AutoRepro-Min implements multiple reduction algorithms:
-
-| Algorithm | Description | Best For |
-|-----------|-------------|----------|
-| **hdd-e** (default) | Hybrid Delta Debugging with Execution guidance | Balanced speed/reduction |
-| **ddmin** | Vanilla line-level delta debugging | Maximum reduction (slow) |
-| **syntax** | AST-guided without execution data | Fast, moderate reduction |
-| **random** | Random unit removal | Sanity check baseline |
-
-## Evaluation
-
-Run evaluation on example bugs:
+## Install and run
 
 ```bash
-# Run single algorithm
-python evaluation/simple_runner.py \
-    --examples ./autorepro_min/examples/simple_single_file \
-    --output results.json \
-    --algorithm hdd-e
+pip install -e .
 
-# Compare all algorithms
-python evaluation/simple_runner.py \
-    --examples ./autorepro_min/examples/simple_single_file \
-    --output results.json \
-    --compare-all
+# Reduce a project against a specific failing test
+python -m autorepro_min.src.cli reduce-project ./my_project \
+  -c "python3 -m pytest tests/test_bug.py::test_foo -x -q" \
+  --strategy output_match \
+  --aggressive-inline \
+  -v
+
+# Rerun the Gistify benchmark (~5 min on M4)
+python evaluation/gistify_runner.py
+
+# Ablation: with vs without Phase 4a
+python evaluation/gistify_runner.py
+python evaluation/gistify_runner.py --no-coverage-prune
 ```
 
-### Example Results
-
-| Algorithm | Success | Reduction | Time | Queries |
-|-----------|---------|-----------|------|---------|
-| hdd-e | 100% | 36.5% | 1.06s | 11.5 |
-| ddmin | 100% | 87.6% | 25.09s | 635.5 |
-| syntax | 100% | 36.5% | 0.42s | 8.5 |
-| random | 100% | 19.2% | 0.59s | 8.5 |
-
-## Project Structure
+## Structure
 
 ```
-autorepro_min/
-├── src/
-│   ├── parser.py        # AST parsing
-│   ├── tracer.py        # Execution tracing
-│   ├── validator.py     # Behavior validation
-│   ├── reducer.py       # Reduction algorithms
-│   └── cli.py           # Command-line interface
-├── examples/            # Example bugs
-└── tests/               # Unit tests
-
+autorepro_min/src/
+  parser.py               tree-sitter AST + CodeUnit model
+  tracer.py               coverage.py wrapper
+  validator.py            behavior oracle (exact / output_match / error_type / error_message)
+  reducer.py              single-file HDD-E
+  multi_file/
+    dependency_analyzer.py  Phase 1: coverage + import graph + classification
+    multi_file_validator.py whole-project oracle
+    import_inliner.py       Phase 3: inline defs into importers
+    coverage_pruner.py      Phase 4a: coverage-based bulk prune
+    multi_file_debugger.py  Phase 1-4 orchestrator
+  cli.py                  reduce / reduce-project / validate / trace commands
 evaluation/
-├── metrics.py           # Evaluation metrics
-├── baselines.py         # Baseline algorithms
-└── simple_runner.py     # Evaluation runner
+  gistify_runner.py       Gistify-style benchmark harness
+  gistify_tasks.json      6-task manifest
+  results_gistify_*.json  benchmark results per configuration
 ```
 
-## Research Background
+## References
 
-AutoRepro-Min is based on research in:
-
-- **Delta Debugging** (Zeller & Hildebrandt, 2002): Systematic input minimization
-- **Hierarchical DD** (Misherghi & Su, 2006): Structure-aware reduction
-- **Weighted DD** (Zhou et al., 2024): Prioritization by element size
-- **Gistify** (Lee et al., 2025): Codebase-level understanding
-
-See `writing_space/literature_review.md` for full survey.
-
-## Limitations
-
-- **Single-file focus**: Multi-file inlining not yet implemented
-- **Limited BugsInPy integration**: Full benchmark requires setup scripts
-- **No dependency reconstruction**: Broken references not repaired
-
-## Contributing
-
-Contributions welcome! Areas for improvement:
-- Multi-file support
-- Expression-level reduction
-- Parallel validation
-- Additional language support
+- Zeller & Hildebrandt (2002) — `ddmin`, the algorithm every delta
+  debugger descends from.
+- Misherghi & Su (2006) — Hierarchical Delta Debugging: structure-
+  aware reduction (what HDD-E extends).
+- Lee et al. (ICLR 2026) — Gistify, the benchmark we compare against.
 
 ## License
 
-MIT License - see LICENSE file for details.
-
-## Citation
-
-If you use AutoRepro-Min in your research, please cite:
-
-```bibtex
-@software{autorepro_min,
-  title={AutoRepro-Min: Automated Bug Reproduction Minimization},
-  year={2026},
-  url={https://github.com/<repository>}
-}
-```
-
-## Acknowledgments
-
-- BugsInPy benchmark (Widyasari et al., 2024)
-- tree-sitter parsing library
-- coverage.py tracing library
+MIT.
