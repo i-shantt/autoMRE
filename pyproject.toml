@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autorepro-min"
+version = "0.3.0"
+description = "Multi-file bug reproduction minimization via coverage-guided empirical delta debugging."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "AutoRepro-Min contributors"}]
+keywords = ["delta-debugging", "bug-reproduction", "minimization", "coverage", "code-analysis"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "tree-sitter>=0.21",
+    "tree-sitter-python>=0.21",
+    "coverage>=7.0",
+]
+
+[project.optional-dependencies]
+# Benchmarking against Gistify-style tasks; needs pytest to be on PATH
+# inside the target project's venv, not this one.
+bench = [
+    "matplotlib>=3.7",
+]
+
+[project.scripts]
+autorepro-min = "autorepro_min.src.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["autorepro_min*"]
+
+[tool.setuptools.package-data]
+"autorepro_min" = ["examples/**/*"]

@@ -60,3 +60,7 @@ venv.bak/
 # Temporary / Output files from execution
 autorepro_min/examples/simple_single_file/bug_output.py
 evaluation/comparison_results.json
+
+# Benchmark artifacts (cloned repos, external datasets)
+.gistify_repo_cache/
+BugsInPy/
