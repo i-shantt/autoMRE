@@ -74,12 +74,13 @@ class MultiFileDebugger:
     """Multi-File Hierarchical Delta Debugging with Execution guidance."""
 
     def __init__(self, verbose: bool = False, timeout: int = 60,
-                 match_strategy: str = "error_type"):
+                 match_strategy: str = "error_type",
+                 aggressive_inline: bool = False):
         self.verbose = verbose
         self.timeout = timeout
         self.match_strategy = match_strategy
         self.analyzer = DependencyAnalyzer()
-        self.inliner = ImportInliner()
+        self.inliner = ImportInliner(aggressive=aggressive_inline)
 
     # ---------------------------------------------------------- public
 

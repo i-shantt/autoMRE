@@ -226,9 +226,12 @@ def cmd_reduce_project(args):
         shutil.copytree(project_dir, work_dir)
         print(f"Working on copy at: {work_dir}")
 
-    debugger = MultiFileDebugger(verbose=args.verbose,
-                                 timeout=args.timeout,
-                                 match_strategy=args.strategy)
+    debugger = MultiFileDebugger(
+        verbose=args.verbose,
+        timeout=args.timeout,
+        match_strategy=args.strategy,
+        aggressive_inline=getattr(args, "aggressive_inline", False),
+    )
     result = debugger.reduce_project(work_dir, test_command)
 
     print()
@@ -371,6 +374,10 @@ Examples:
                     choices=['exact', 'output_match',
                              'error_type', 'error_message'],
                     help='Behavior-matching strategy')
+    rp.add_argument('--aggressive-inline', action='store_true',
+                    help='Inline modules even when they have top-level '
+                         'side effects; roll back if the inline breaks '
+                         'the bug. Trades safety for tighter reductions.')
     rp.add_argument('-v', '--verbose', action='store_true',
                     help='Verbose progress output')
 
