@@ -34,6 +34,13 @@ dependencies = [
 bench = [
     "matplotlib>=3.7",
 ]
+# Learned removability oracle (Phase 4a filter / Phase 4b skip).
+# Optional because the reducer runs fine without it — the core install
+# stays lean for users who only want the empirical delta debugger.
+oracle = [
+    "scikit-learn>=1.4",
+    "numpy>=1.24",
+]
 
 [project.scripts]
 autorepro-min = "autorepro_min.src.cli:main"
