@@ -331,7 +331,8 @@ Examples:
     validate_parser.add_argument('-r', '--reference', help='Reference file for comparison')
     validate_parser.add_argument('-c', '--command', help='Command to execute')
     validate_parser.add_argument('-s', '--strategy', default='error_type',
-                                choices=['exact', 'error_type', 'error_message'],
+                                choices=['exact', 'output_match',
+                                         'error_type', 'error_message'],
                                 help='Validation strategy')
     validate_parser.add_argument('-v', '--verbose', action='store_true',
                                 help='Verbose output')
@@ -367,7 +368,8 @@ Examples:
     rp.add_argument('-t', '--timeout', type=int, default=60,
                     help='Per-run reproduction timeout in seconds')
     rp.add_argument('-s', '--strategy', default='error_type',
-                    choices=['exact', 'error_type', 'error_message'],
+                    choices=['exact', 'output_match',
+                             'error_type', 'error_message'],
                     help='Behavior-matching strategy')
     rp.add_argument('-v', '--verbose', action='store_true',
                     help='Verbose progress output')

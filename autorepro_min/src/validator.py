@@ -118,7 +118,8 @@ class Validator:
         Args:
             original_behavior: Original behavior to match against
             timeout: Maximum execution time in seconds
-            match_strategy: How to determine match ("exact", "error_type", "error_message")
+            match_strategy: How to determine match ("exact", "output_match",
+                "error_type", "error_message")
         """
         self.original_behavior = original_behavior
         self.timeout = timeout
@@ -232,6 +233,16 @@ class Validator:
             return (output == self.original_behavior.output and
                     return_code == self.original_behavior.return_code)
 
+        elif self.match_strategy == "output_match":
+            # Return code and normalized stdout/stderr must both match.
+            # Normalization strips per-run noise (pytest timings, temp
+            # paths, progress markers) that changes between runs without
+            # reflecting a real behavior change.
+            if return_code != self.original_behavior.return_code:
+                return False
+            return (self._normalize_output(output) ==
+                    self._normalize_output(self.original_behavior.output))
+
         elif self.match_strategy == "error_type":
             # Match on error type (most permissive)
             orig_error = self.original_behavior.error_type
@@ -285,6 +296,36 @@ class Validator:
         current_message = current_message or ""
 
         return self._text_similarity(orig_message, current_message)
+
+    @staticmethod
+    def _normalize_output(text: str) -> str:
+        """Canonicalize test output so `output_match` ignores run-to-run noise.
+
+        Removes pytest timings, progress markers, absolute tmp/var
+        paths, and long traceback file paths. The point is not perfect
+        canonicalization — just enough that a reduction which preserves
+        behavior but slightly changes formatting still passes.
+        """
+        import re
+        if not text:
+            return ""
+        out = []
+        for line in text.splitlines():
+            line = line.rstrip()
+            if not line:
+                continue
+            # "1 passed in 0.05s" -> "1 passed in Xs"
+            line = re.sub(r"\s+in\s+\d+\.\d+s(\s|$)", " in Xs\\1", line)
+            line = re.sub(r"\bin\s+\d+\.\d+\s*seconds?\b", "in Xs", line)
+            # "[ 67%]" progress markers
+            line = re.sub(r"\[\s*\d+%\s*\]", "[NN%]", line)
+            # tempfile paths — reduction runs in a temp dir, original didn't
+            line = re.sub(r"/(private/)?tmp/[^\s\"']*", "/tmp/PATH", line)
+            line = re.sub(r"/var/folders/[^\s\"']*", "/tmp/PATH", line)
+            # Traceback "File \"/long/abs/path/foo.py\"" -> "File \"foo.py\""
+            line = re.sub(r'File\s+"([^"]*/)?([^/"]+)"', r'File "\2"', line)
+            out.append(line)
+        return "\n".join(out)
 
     @staticmethod
     def _text_similarity(text1: str, text2: str) -> float:
