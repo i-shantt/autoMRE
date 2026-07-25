@@ -229,6 +229,19 @@ class MultiFileDebugger:
         # Prioritize larger files first so big wins land early.
         final_survivors.sort(key=lambda p: -self._line_count(p))
 
+        # Phase 1's coverage described the original file layout. After
+        # Phase 3 inlining, importers now contain code that never ran
+        # in the original trace — so applying Phase 1 line numbers to
+        # them would find nothing prunable. Re-trace against the
+        # current tree to give the pruner accurate coverage.
+        if self.use_coverage_prune:
+            self._log("  refreshing coverage after inlining...")
+            fresh = self.analyzer.analyze(project_dir, test_command)
+            fresh_executed = fresh.executed_lines
+            queries += 1  # count the re-trace as one oracle query
+        else:
+            fresh_executed = {}
+
         for f in final_survivors:
             original_source = f.read_text()
             original_lines = len(original_source.splitlines())
@@ -237,7 +250,7 @@ class MultiFileDebugger:
             # to strip everything HDD-E would otherwise discover as
             # cold, one wasted query per unit).
             if self.use_coverage_prune:
-                executed = analysis.executed_lines.get(f, set())
+                executed = fresh_executed.get(f, set())
                 prune = self.coverage_pruner.prune_source(
                     original_source, executed)
                 if prune.any_removed:
