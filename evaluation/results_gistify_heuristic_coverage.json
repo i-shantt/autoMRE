@@ -1,0 +1,87 @@
+{
+  "config": {
+    "prioritizer": "heuristic",
+    "coverage_prune": true
+  },
+  "summary": {
+    "n_tasks": 6,
+    "execution_fidelity_rate": 1.0,
+    "single_file_rate": 0.0,
+    "avg_time_seconds": 51.98207135995229,
+    "avg_queries": 244.33333333333334
+  },
+  "runs": [
+    {
+      "task_id": "requests-super_len_partial",
+      "execution_fidelity": 1,
+      "original_files": 36,
+      "final_files": 4,
+      "original_lines": 11209,
+      "final_lines": 798,
+      "single_file_output": false,
+      "total_queries": 218,
+      "time_seconds": 48.29115104675293,
+      "error": null
+    },
+    {
+      "task_id": "requests-guess_json_utf",
+      "execution_fidelity": 1,
+      "original_files": 36,
+      "final_files": 4,
+      "original_lines": 11209,
+      "final_lines": 721,
+      "single_file_output": false,
+      "total_queries": 250,
+      "time_seconds": 54.90513896942139,
+      "error": null
+    },
+    {
+      "task_id": "requests-content_disposition",
+      "execution_fidelity": 1,
+      "original_files": 36,
+      "final_files": 4,
+      "original_lines": 11209,
+      "final_lines": 718,
+      "single_file_output": false,
+      "total_queries": 249,
+      "time_seconds": 53.64403796195984,
+      "error": null
+    },
+    {
+      "task_id": "requests-cookie_utils",
+      "execution_fidelity": 1,
+      "original_files": 36,
+      "final_files": 4,
+      "original_lines": 11209,
+      "final_lines": 661,
+      "single_file_output": false,
+      "total_queries": 226,
+      "time_seconds": 49.4032769203186,
+      "error": null
+    },
+    {
+      "task_id": "flask-request_ctx_basic",
+      "execution_fidelity": 1,
+      "original_files": 82,
+      "final_files": 2,
+      "original_lines": 17565,
+      "final_lines": 679,
+      "single_file_output": false,
+      "total_queries": 413,
+      "time_seconds": 85.03674101829529,
+      "error": null
+    },
+    {
+      "task_id": "flask-blueprint_registration",
+      "execution_fidelity": 1,
+      "original_files": 82,
+      "final_files": 2,
+      "original_lines": 17565,
+      "final_lines": 393,
+      "single_file_output": false,
+      "total_queries": 110,
+      "time_seconds": 20.6120822429657,
+      "error": null
+    }
+  ]
+}
