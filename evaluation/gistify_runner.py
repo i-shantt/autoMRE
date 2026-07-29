@@ -145,6 +145,7 @@ class GistifyResult:
     total_queries: int
     time_seconds: float
     error: Optional[str] = None
+    protected_lines: int = 0
     oracle_enabled: bool = False
     oracle_skipped_attempts: int = 0
     oracle_held_back_files: int = 0
@@ -472,6 +473,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
             single_file_output=(final_files == 1),
             total_queries=summary.total_queries,
             time_seconds=elapsed,
+            protected_lines=summary.protected_line_count,
             oracle_enabled=summary.oracle_enabled,
             oracle_skipped_attempts=summary.oracle_skipped_attempts,
             oracle_held_back_files=summary.oracle_held_back_files,

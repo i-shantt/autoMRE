@@ -250,6 +250,16 @@ def cmd_reduce_project(args):
     print(f"Lines:             {result.original_line_count} -> "
           f"{result.final_line_count} "
           f"({result.line_reduction_rate*100:.1f}% removed)")
+    if result.protected_line_count:
+        # The protected test and its conftest are identical before and
+        # after, so they sit in both sides of the total figure and drag it
+        # down for a reason that says nothing about the reduction.
+        print(f"  of which protected (test/conftest): "
+              f"{result.protected_line_count} lines")
+        print(f"Reducible lines:   "
+              f"{result.original_line_count - result.protected_line_count} -> "
+              f"{result.final_line_count - result.protected_line_count} "
+              f"({result.reducible_reduction_rate*100:.1f}% removed)")
     print(f"Unreachable dropped: {len(result.unreachable_deleted)}")
     print(f"Imported-only dropped: {len(result.imported_deleted)}")
     print(f"Inlined away:      {len(result.inlined_away)}")

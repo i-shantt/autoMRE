@@ -55,10 +55,33 @@ class MultiFileReductionResult:
     # path -> (original_lines, final_lines)
     total_queries: int = 0
     time_seconds: float = 0.0
+    # Lines in files the reducer was never allowed to touch (the target
+    # test and its conftest). Reported separately because they dominate
+    # the total and drag the headline figure toward zero for reasons that
+    # say nothing about the reducer: on requests-guess_json_utf they are
+    # 1016 of the 1198 surviving lines, so a total-line figure of 89.3%
+    # conceals a 98.2% reduction of the code actually under reduction.
+    protected_line_count: int = 0
     # Oracle bookkeeping — zero when it isn't in use.
     oracle_enabled: bool = False
     oracle_skipped_attempts: int = 0   # Phase 4b removals never tried
     oracle_held_back_files: int = 0    # Phase 4a prunes it emptied out
+
+    @property
+    def reducible_reduction_rate(self) -> float:
+        """Reduction over the code the reducer could actually remove.
+
+        Protected files are constant between the original and the result,
+        so they belong in neither numerator nor denominator. This is the
+        number that reflects what the tool did; line_reduction_rate is
+        the number that reflects what the project looks like afterwards.
+        Both are worth reporting, for different questions.
+        """
+        original = self.original_line_count - self.protected_line_count
+        final = self.final_line_count - self.protected_line_count
+        if original <= 0:
+            return 0.0
+        return (original - final) / original
 
     @property
     def file_reduction_rate(self) -> float:
@@ -426,6 +449,8 @@ class MultiFileDebugger:
             per_file_reduction=per_file_reduction,
             total_queries=queries,
             time_seconds=time.time() - start,
+            protected_line_count=sum(self._line_count(f) for f in protected
+                                     if f.exists()),
             oracle_enabled=self.oracle is not None,
             oracle_skipped_attempts=oracle_skipped_attempts,
             oracle_held_back_files=oracle_held_back_files,
