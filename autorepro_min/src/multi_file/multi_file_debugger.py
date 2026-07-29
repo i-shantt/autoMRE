@@ -83,6 +83,10 @@ class MultiFileDebugger:
     # resist inlining" from "inlining cannot work on this project".
     INLINE_FAILURE_LIMIT = 3
 
+    # Files pytest loads implicitly alongside the target test. They are
+    # part of the oracle, not the code under reduction.
+    ORACLE_FILENAMES = ("conftest.py",)
+
     # Safety valve on the Phase 5 sweep. It stops on its own as soon as a
     # round deletes nothing; this only bounds a pathological case.
     MAX_SWEEP_ROUNDS = 10
@@ -155,6 +159,12 @@ class MultiFileDebugger:
             validator.set_original_from(
                 trace.output, 0 if trace.success else trace.return_code)
 
+        protected = self._protected_files(project_dir, test_command)
+        if protected:
+            self._log(f"  protecting {len(protected)} oracle file(s): "
+                      + ", ".join(sorted(
+                          str(p.relative_to(project_dir)) for p in protected)))
+
         original_file_count = len(analysis.all_files)
         original_line_count = sum(
             self._line_count(f) for f in analysis.all_files)
@@ -168,6 +178,8 @@ class MultiFileDebugger:
         unreachable_deleted: List[Path] = []
         unreachable_snapshot: Dict[Path, str] = {}
         for f in sorted(analysis.unreachable_files):
+            if f.resolve() in protected:
+                continue
             try:
                 unreachable_snapshot[f] = f.read_text()
                 f.unlink()
@@ -203,7 +215,7 @@ class MultiFileDebugger:
         candidates = sorted(analysis.imported_only_files,
                             key=lambda p: -self._line_count(p))
         for f in candidates:
-            if not f.exists():
+            if not f.exists() or f.resolve() in protected:
                 continue
             content = f.read_text()
             f.unlink()
@@ -246,7 +258,7 @@ class MultiFileDebugger:
                 self._log(f"  giving up on inlining after "
                           f"{consecutive_rollbacks} consecutive rollbacks")
                 break
-            if not f.exists():
+            if not f.exists() or f.resolve() in protected:
                 continue
             importers = [
                 imp for imp in analysis.reverse_graph.get(f, set())
@@ -297,6 +309,10 @@ class MultiFileDebugger:
             fresh_executed = {}
 
         for f in final_survivors:
+            if f.resolve() in protected:
+                self._log(f"  {f.relative_to(project_dir)}: oracle file, "
+                          "left intact")
+                continue
             original_source = f.read_text()
             original_lines = len(original_source.splitlines())
             # Coverage for this file as it currently stands. Phase 4a may
@@ -386,7 +402,8 @@ class MultiFileDebugger:
         self._log("Phase 5: final file sweep...")
         for _ in range(self.MAX_SWEEP_ROUNDS):
             swept, sweep_queries = self._sweep_deletable_files(
-                [f for f in analysis.all_files if f.exists()],
+                [f for f in analysis.all_files
+                 if f.exists() and f.resolve() not in protected],
                 validator, project_dir)
             queries += sweep_queries
             imported_deleted.extend(swept)
@@ -415,6 +432,57 @@ class MultiFileDebugger:
         )
 
     # ---------------------------------------------------------- utils
+
+    def _protected_files(self, project_dir: Path,
+                         test_command: List[str]) -> Set[Path]:
+        """Files that define the property being preserved.
+
+        The reproduction command names a test; that test and the fixtures
+        it pulls in are the *oracle*, not the code under reduction.
+        Letting the reducer touch them is a category error with a very
+        comfortable failure mode: stub the test body to `pass` and stub
+        every fixture to `pass`, and pytest still prints "1 passed",
+        which matches the original output exactly. The reducer is then
+        free to delete the entire library.
+
+        That is not hypothetical. On flask it produced a "99.6%
+        reduction" whose surviving tree was two files of empty test
+        stubs, with `import flask` resolving to nothing. The run proved
+        only that an empty test passes.
+
+        Protected: every existing .py path named in the command (minus
+        any `::node::id` suffix) and every conftest.py from that file's
+        directory up to the project root, since pytest loads those
+        implicitly and they supply the fixtures.
+        """
+        protected: Set[Path] = set()
+        project_dir = project_dir.resolve()
+
+        for arg in test_command:
+            candidate = arg.split("::", 1)[0]
+            if not candidate.endswith(".py"):
+                continue
+            path = Path(candidate)
+            if not path.is_absolute():
+                path = project_dir / path
+            path = path.resolve()
+            if not path.exists():
+                continue
+            protected.add(path)
+
+            # conftest.py files apply to everything at or below their
+            # directory, so walk up to the project root collecting them.
+            directory = path.parent
+            while True:
+                for name in self.ORACLE_FILENAMES:
+                    sibling = (directory / name).resolve()
+                    if sibling.exists():
+                        protected.add(sibling)
+                if directory == project_dir or project_dir not in directory.parents:
+                    break
+                directory = directory.parent
+
+        return protected
 
     def _sweep_deletable_files(self, files: List[Path], validator,
                                project_dir: Path) -> Tuple[List[Path], int]:
