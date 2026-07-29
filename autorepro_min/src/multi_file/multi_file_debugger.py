@@ -433,6 +433,15 @@ class MultiFileDebugger:
 
     # ---------------------------------------------------------- utils
 
+    @staticmethod
+    def _is_test_runner(test_command: List[str]) -> bool:
+        """Does this command hand the verdict to a test framework?"""
+        runners = {"pytest", "py.test", "unittest", "nose2"}
+        for arg in test_command:
+            if Path(arg).name in runners or arg in runners:
+                return True
+        return False
+
     def _protected_files(self, project_dir: Path,
                          test_command: List[str]) -> Set[Path]:
         """Files that define the property being preserved.
@@ -457,6 +466,16 @@ class MultiFileDebugger:
         """
         protected: Set[Path] = set()
         project_dir = project_dir.resolve()
+
+        # Only test-runner invocations get this treatment. Under
+        # `python main.py` the script *is* the subject — it is what
+        # crashes, and reducing it is the whole point. That case is also
+        # self-protecting: the oracle compares the traceback including
+        # the offending source line, so a reduction cannot fake the
+        # failure by deleting the code that causes it. A passing pytest
+        # run has no such anchor, which is exactly why it needs one.
+        if not self._is_test_runner(test_command):
+            return protected
 
         for arg in test_command:
             candidate = arg.split("::", 1)[0]
