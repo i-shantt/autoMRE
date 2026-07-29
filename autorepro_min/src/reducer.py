@@ -48,6 +48,46 @@ def _apply_removals(source: str, spans: List[Tuple[int, int]]) -> str:
     return out
 
 
+def _apply_edits(source: str,
+                 edits: List[Tuple[Tuple[int, int], str]]) -> str:
+    """Replace byte ranges with text, back to front."""
+    out = source
+    for (start, end), replacement in sorted(edits, key=lambda e: -e[0][0]):
+        out = out[:start] + replacement + out[end:]
+    return out
+
+
+def _largest_removable_subset(spans, ok, _depth: int = 0):
+    """Biggest subset of `spans` that can be removed together.
+
+    Halving, in the spirit of ddmin: ask about the whole set first, and
+    only split when the answer is no. When a file carries three hundred
+    comments and exactly one `# noqa` that matters, this isolates it in
+    O(log n) probes instead of asking about each comment in turn.
+
+    Every set returned has been confirmed removable by `ok`, so the
+    caller never has to re-validate the result.
+    """
+    if not spans:
+        return []
+    if ok(list(spans)):
+        return list(spans)
+    if len(spans) == 1:
+        return []
+
+    mid = len(spans) // 2
+    left = _largest_removable_subset(spans[:mid], ok, _depth + 1)
+    right = _largest_removable_subset(spans[mid:], ok, _depth + 1)
+
+    combined = left + right
+    # Each half is removable alone; together they may not be (one may
+    # only be safe while the other is present), so confirm before
+    # claiming the union.
+    if left and right and ok(combined):
+        return combined
+    return left if len(left) >= len(right) else right
+
+
 def _is_parseable(source: str) -> bool:
     """Cheap local check that a candidate is even syntactically valid.
 
@@ -483,27 +523,42 @@ class HybridDeltaDebugger:
         return _apply_removals(source, removed)
 
     def _stub_bodies(self, source: str, test_command, cwd,
-                     stats) -> str:
-        """Collapse function and class bodies to `pass` where possible."""
+                     stats, max_passes: int = 100) -> str:
+        """Collapse function and class bodies to `pass` where possible.
+
+        Accumulating passes, same shape as deletion: restarting after
+        each accepted stub would cost O(successes x bodies) queries on a
+        file with hundreds of definitions.
+
+        Edits are applied largest-first and overlap-checked, because
+        stubbing a class body subsumes every method inside it — applying
+        both would splice one replacement into the middle of another.
+        """
         current = source
-        while True:
+        for _ in range(max_passes):
             tree = self.parser.parse_source(current)
             edits = _body_stub_edits(tree, current)
-            applied = False
-            for (start, end), replacement in edits:
-                cand = current[:start] + replacement + current[end:]
+            if not edits:
+                return current
+
+            accepted: List[Tuple[Tuple[int, int], str]] = []
+            for span, replacement in edits:
+                if _overlaps(span, [s for s, _ in accepted]):
+                    continue
+                cand = _apply_edits(current, accepted + [(span, replacement)])
                 if not _is_parseable(cand):
                     stats.syntax_rejected += 1
                     continue
                 stats.queries += 1
                 if self._validate(cand, test_command, cwd):
-                    current = cand
-                    applied = True
+                    accepted.append((span, replacement))
                     if self.verbose:
                         print("  Stubbed a body to pass")
-                    break
-            if not applied:
+
+            if not accepted:
                 return current
+            current = _apply_edits(current, accepted)
+        return current
 
     def _strip_comments(self, source: str, test_command, cwd,
                         stats) -> str:
@@ -519,27 +574,16 @@ class HybridDeltaDebugger:
         if not spans:
             return source
 
-        batch = _apply_removals(source, spans)
-        if _is_parseable(batch):
+        def ok(spans_to_remove: List[Tuple[int, int]]) -> bool:
+            cand = _apply_removals(source, spans_to_remove)
+            if not _is_parseable(cand):
+                stats.syntax_rejected += 1
+                return False
             stats.queries += 1
-            if self._validate(batch, test_command, cwd):
-                return batch
+            return self._validate(cand, test_command, cwd)
 
-        current = source
-        while True:
-            tree = self.parser.parse_source(current)
-            progressed = False
-            for span in _comment_spans(tree):
-                cand = _apply_removals(current, [span])
-                if not _is_parseable(cand):
-                    continue
-                stats.queries += 1
-                if self._validate(cand, test_command, cwd):
-                    current = cand
-                    progressed = True
-                    break
-            if not progressed:
-                return current
+        removable = _largest_removable_subset(spans, ok)
+        return _apply_removals(source, removable) if removable else source
 
     def _candidates(self, source_code: str,
                     trace: ExecutionTrace) -> List[CodeUnit]:
