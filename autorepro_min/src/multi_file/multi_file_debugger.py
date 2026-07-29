@@ -78,6 +78,11 @@ class MultiFileReductionResult:
 class MultiFileDebugger:
     """Multi-File Hierarchical Delta Debugging with Execution guidance."""
 
+    # Consecutive Phase 3 rollbacks after which inlining is abandoned for
+    # the run. Three is enough to distinguish "this file happens to
+    # resist inlining" from "inlining cannot work on this project".
+    INLINE_FAILURE_LIMIT = 3
+
     def __init__(self, verbose: bool = False, timeout: int = 60,
                  match_strategy: str = "output_match",
                  aggressive_inline: bool = False,
@@ -223,7 +228,20 @@ class MultiFileDebugger:
         # main->a->b->c), which is exactly the order Phase 3 wants: inline
         # leaves upward so each intermediate absorbs its dependencies before
         # being inlined into its own importer.
+        # Inlining a module of an installed package is structurally
+        # hopeless: folding src/flask/app.py into __init__.py breaks
+        # every `from flask.app import X` and the layout the editable
+        # install depends on. On flask all twenty attempts roll back, one
+        # wasted query each. Rather than hard-code a package rule that
+        # might be wrong for some project, give up after a few
+        # consecutive failures — a project where inlining works keeps
+        # working, and one where it cannot stops paying for the answer.
+        consecutive_rollbacks = 0
         for f in order:
+            if consecutive_rollbacks >= self.INLINE_FAILURE_LIMIT:
+                self._log(f"  giving up on inlining after "
+                          f"{consecutive_rollbacks} consecutive rollbacks")
+                break
             if not f.exists():
                 continue
             importers = [
@@ -245,8 +263,10 @@ class MultiFileDebugger:
                 if validator.validate():
                     snap.commit()
                     inlined_away.append(f)
+                    consecutive_rollbacks = 0
                     self._log(f"  inlined away {f.relative_to(project_dir)}")
                 else:
+                    consecutive_rollbacks += 1
                     self._log(f"  rollback {f.relative_to(project_dir)} "
                               "(bug broke)")
 
