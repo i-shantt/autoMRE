@@ -64,3 +64,4 @@ evaluation/comparison_results.json
 # Benchmark artifacts (cloned repos, external datasets)
 .gistify_repo_cache/
 BugsInPy/
+.gistify_venv/

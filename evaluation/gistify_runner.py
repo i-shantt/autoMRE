@@ -48,6 +48,64 @@ from validator import Validator  # noqa: E402
 # On-disk cache for cloned repos so we don't re-clone across runs.
 _REPO_CACHE = _ROOT / ".gistify_repo_cache"
 
+# Benchmark interpreter, provisioned on first use.
+#
+# The benchmark is only meaningful if the target test passes before we
+# reduce anything. flask's tests/conftest.py imports the private sentinel
+# `_pytest.monkeypatch.notset`, which pytest dropped in 9.1 — under a
+# newer pytest every flask task dies during collection. That failure is
+# quiet and dangerous: the harness would faithfully capture "conftest
+# raises AttributeError" as the behavior to preserve, and since only
+# conftest.py is needed to keep raising it, the reducer could delete
+# nearly the whole repo and still score execution fidelity 1. A pinned
+# interpreter turns an ambient-environment dependency into a declared one.
+#
+# Every flask tag from 3.0.3 through 3.1.3 uses the private API, so the
+# pin has to be on pytest, not on flask.
+_BENCH_VENV = _ROOT / ".gistify_venv"
+_PINNED_PYTEST = "pytest==9.0.0"
+
+
+def _venv_python(venv_dir: Path) -> Path:
+    if sys.platform == "win32":
+        return venv_dir / "Scripts" / "python.exe"
+    return venv_dir / "bin" / "python"
+
+
+def _ensure_bench_python(verbose: bool = False) -> str:
+    """Path to the benchmark interpreter, creating the venv if needed."""
+    py = _venv_python(_BENCH_VENV)
+    if py.exists():
+        return str(py)
+
+    print(f"  provisioning benchmark venv at {_BENCH_VENV.name} "
+          f"({_PINNED_PYTEST})...", flush=True)
+    subprocess.run([sys.executable, "-m", "venv", str(_BENCH_VENV)],
+                   check=True)
+    subprocess.run([str(py), "-m", "pip", "install", "--quiet",
+                    "--upgrade", "pip"], check=False)
+    proc = subprocess.run(
+        [str(py), "-m", "pip", "install", "--quiet", _PINNED_PYTEST],
+        capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"could not install {_PINNED_PYTEST}: {proc.stderr[-800:]}")
+    return str(py)
+
+
+def _resolve_test_command(cmd: List[str], python: str) -> List[str]:
+    """Point a manifest's `python3 -m pytest ...` at `python`.
+
+    Manifests stay portable by naming a bare interpreter; the harness
+    decides which one actually runs.
+    """
+    if not cmd:
+        return cmd
+    head = Path(cmd[0]).name
+    if head in ("python", "python3", "python3.13", sys.executable):
+        return [python] + list(cmd[1:])
+    return list(cmd)
+
 
 @dataclass
 class GistifyTask:
@@ -99,16 +157,16 @@ def _ensure_repo(task: GistifyTask, verbose: bool = False) -> Path:
     return repo_dir
 
 
-def _install_repo(repo_dir: Path, verbose: bool = False) -> bool:
-    """`pip install -e .` the checked-out repo, once per (repo, commit)."""
+def _install_repo(repo_dir: Path, python: str,
+                  verbose: bool = False) -> bool:
+    """`pip install -e .` the checked-out repo into the benchmark env."""
     stamp = repo_dir / ".autorepro_installed"
     if stamp.exists():
         return True
     if verbose:
         print(f"  installing {repo_dir.name} (one-time)...")
     proc = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--quiet", "-e",
-         str(repo_dir)],
+        [python, "-m", "pip", "install", "--quiet", "-e", str(repo_dir)],
         capture_output=True, text=True)
     if proc.returncode != 0:
         print(f"  install failed: {proc.stderr[-800:]}", file=sys.stderr)
@@ -160,11 +218,14 @@ def _count_files_and_lines(root: Path) -> tuple:
 
 def run_task(task: GistifyTask, timeout: int = 120,
              verbose: bool = False,
-             use_coverage_prune: bool = True) -> GistifyResult:
+             use_coverage_prune: bool = True,
+             python: Optional[str] = None) -> GistifyResult:
+    python = python or sys.executable
+    test_command = _resolve_test_command(task.test_command, python)
     print(f"  → cloning/preparing {task.task_id}...", flush=True)
     try:
         source_dir = _ensure_repo(task, verbose=verbose)
-        if not _install_repo(source_dir, verbose=verbose):
+        if not _install_repo(source_dir, python, verbose=verbose):
             return GistifyResult(
                 task_id=task.task_id, execution_fidelity=0,
                 original_files=0, final_files=0,
@@ -190,7 +251,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
 
         print(f"  → capturing baseline output...", flush=True)
         baseline_out, baseline_rc = _capture_baseline(
-            work_dir, task.test_command, timeout=timeout)
+            work_dir, test_command, timeout=timeout)
         if baseline_rc < 0 and "TIMEOUT" in baseline_out:
             return GistifyResult(
                 task_id=task.task_id, execution_fidelity=0,
@@ -215,7 +276,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
         print(f"  → reducing...", flush=True)
         start = time.time()
         try:
-            summary = debugger.reduce_project(work_dir, task.test_command)
+            summary = debugger.reduce_project(work_dir, test_command)
         except Exception as exc:
             return GistifyResult(
                 task_id=task.task_id, execution_fidelity=0,
@@ -229,7 +290,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
         final_files, final_lines = _count_files_and_lines(work_dir)
         print(f"  → checking execution fidelity...", flush=True)
         fidelity = _check_execution_fidelity(
-            work_dir, task.test_command,
+            work_dir, test_command,
             baseline_out, baseline_rc, timeout=timeout)
 
         return GistifyResult(
@@ -281,6 +342,12 @@ def main() -> int:
              "results_gistify_heuristic_no_coverage.json.")
     parser.add_argument("--no-coverage-prune", action="store_true",
         help="Disable coverage-based bulk pruning (ablation).")
+    parser.add_argument("--python", default=None,
+        help="Interpreter to run the target tests with. Defaults to a "
+             f"pinned benchmark venv ({_PINNED_PYTEST}).")
+    parser.add_argument("--no-venv", action="store_true",
+        help="Run tests with the ambient interpreter instead of the "
+             "pinned benchmark venv. Results may not be comparable.")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -294,11 +361,20 @@ def main() -> int:
         print("No tasks in manifest.", file=sys.stderr)
         return 1
 
+    if args.python:
+        bench_python = args.python
+    elif args.no_venv:
+        bench_python = sys.executable
+    else:
+        bench_python = _ensure_bench_python(verbose=args.verbose)
+    print(f"[gistify] test interpreter: {bench_python}", flush=True)
+
     results: List[GistifyResult] = []
     for task in tasks:
         print(f"[gistify] {task.task_id}", flush=True)
         r = run_task(task, timeout=args.timeout, verbose=args.verbose,
-                     use_coverage_prune=not args.no_coverage_prune)
+                     use_coverage_prune=not args.no_coverage_prune,
+                     python=bench_python)
         icon = "PASS" if r.execution_fidelity else "FAIL"
         if r.error:
             print(f"  {icon} error: {r.error}")
@@ -315,6 +391,9 @@ def main() -> int:
         "config": {
             "prioritizer": "heuristic",
             "coverage_prune": not args.no_coverage_prune,
+            "test_interpreter": bench_python,
+            "pinned_pytest": (None if (args.python or args.no_venv)
+                              else _PINNED_PYTEST),
         },
         "summary": summary,
         "runs": [asdict(r) for r in results],
