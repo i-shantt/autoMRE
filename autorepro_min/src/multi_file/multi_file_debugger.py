@@ -21,7 +21,7 @@ import sys as _sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 _SRC_DIR = Path(__file__).resolve().parent.parent
 if str(_SRC_DIR) not in _sys.path:
@@ -352,6 +352,15 @@ class MultiFileDebugger:
             self._log(f"  {f.relative_to(project_dir)}: "
                       f"{original_lines} -> {final_lines} lines")
 
+        # ------------- Phase 5 — sweep for files that only became
+        # deletable once Phase 4 removed whatever still imported them.
+        self._log("Phase 5: final file sweep...")
+        swept, sweep_queries = self._sweep_deletable_files(
+            [f for f in analysis.all_files if f.exists()],
+            validator, project_dir)
+        queries += sweep_queries
+        imported_deleted.extend(swept)
+
         # ------------- Summarize
         final_files = [f for f in analysis.all_files if f.exists()]
         final_line_count = sum(self._line_count(f) for f in final_files)
@@ -374,6 +383,36 @@ class MultiFileDebugger:
         )
 
     # ---------------------------------------------------------- utils
+
+    def _sweep_deletable_files(self, files: List[Path], validator,
+                               project_dir: Path) -> Tuple[List[Path], int]:
+        """Retry deleting whole files, largest first.
+
+        Phase 2 asks this question before Phase 4 has run, which is too
+        early: a module survives Phase 2 because something still imports
+        it, and Phase 4 is what removes that import. By the time the
+        import is gone nothing revisits the module, so it sits in the
+        output as an orphan no longer reachable from anywhere.
+
+        Returns the files deleted and the queries spent.
+        """
+        deleted: List[Path] = []
+        queries = 0
+        for f in sorted(files, key=lambda p: -self._line_count(p)):
+            if not f.exists():
+                continue
+            content = f.read_text()
+            try:
+                f.unlink()
+            except OSError:
+                continue
+            queries += 1
+            if validator.validate():
+                deleted.append(f)
+                self._log(f"  removed {f.relative_to(project_dir)}")
+            else:
+                f.write_text(content)
+        return deleted, queries
 
     def _oracle_accept(self, source: str, executed: Set[int],
                        file_path: Path):
