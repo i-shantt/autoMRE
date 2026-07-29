@@ -83,6 +83,10 @@ class MultiFileDebugger:
     # resist inlining" from "inlining cannot work on this project".
     INLINE_FAILURE_LIMIT = 3
 
+    # Safety valve on the Phase 5 sweep. It stops on its own as soon as a
+    # round deletes nothing; this only bounds a pathological case.
+    MAX_SWEEP_ROUNDS = 10
+
     def __init__(self, verbose: bool = False, timeout: int = 60,
                  match_strategy: str = "output_match",
                  aggressive_inline: bool = False,
@@ -374,12 +378,20 @@ class MultiFileDebugger:
 
         # ------------- Phase 5 — sweep for files that only became
         # deletable once Phase 4 removed whatever still imported them.
+        # Repeat: deleting a module can orphan the one that imported it,
+        # so a sweep that removes ten files often exposes more. Each
+        # extra round costs one query per surviving file, and the tree is
+        # small by now — the round that finds nothing is a handful of
+        # queries.
         self._log("Phase 5: final file sweep...")
-        swept, sweep_queries = self._sweep_deletable_files(
-            [f for f in analysis.all_files if f.exists()],
-            validator, project_dir)
-        queries += sweep_queries
-        imported_deleted.extend(swept)
+        for _ in range(self.MAX_SWEEP_ROUNDS):
+            swept, sweep_queries = self._sweep_deletable_files(
+                [f for f in analysis.all_files if f.exists()],
+                validator, project_dir)
+            queries += sweep_queries
+            imported_deleted.extend(swept)
+            if not swept:
+                break
 
         # ------------- Summarize
         final_files = [f for f in analysis.all_files if f.exists()]
