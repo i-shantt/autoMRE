@@ -1,0 +1,153 @@
+{
+  "_description": "Task manifest for generating learned-oracle training data. Superset of gistify_tasks.json: the same 6 scored benchmark tasks plus 12 train-only tasks that exist purely to produce more Phase 4b removal attempts.",
+  "_split_semantics": "split='benchmark' rows come from the 6 tasks the oracle is later evaluated on; split='train_only' rows never appear in any scored run. Both are used for training, which makes the end-to-end benchmark number optimistic — the honest generalization estimate is the leave-one-repo-out CV reported by ml/oracle.py, where a fold trains on one repo and is scored on the other.",
+  "_repo_choice": "Both repos are already in .gistify_repo_cache, so no new clone or install cost. Only two repos are available, which caps leave-one-repo-out at 2 folds — few, but honest. Leave-one-task-out was rejected: 4 of the 6 benchmark tasks share the requests repo, so per-task folds would train and test on the same files.",
+  "_environment": "Runs under the pinned benchmark venv (pytest==9.0.0). flask 3.0.3's conftest uses _pytest.monkeypatch.notset, which pytest 9.1 removed; without the pin every flask task errors during collection and produces garbage rows.",
+  "tasks": [
+    {
+      "task_id": "requests-super_len_partial",
+      "repo": "https://github.com/psf/requests",
+      "commit": "v2.32.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::TestSuperLen::test_super_len_correctly_calculates_len_of_partially_read_file", "-x", "-q", "--no-header"],
+      "split": "benchmark",
+      "notes": "Exercises requests.utils.super_len — the len() variant that handles partially-read file objects."
+    },
+    {
+      "task_id": "requests-guess_json_utf",
+      "repo": "https://github.com/psf/requests",
+      "commit": "v2.32.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::TestGuessJSONUTF", "-x", "-q", "--no-header"],
+      "split": "benchmark",
+      "notes": "Class of 8 tests for BOM-based JSON encoding detection. All pure-Python, no network."
+    },
+    {
+      "task_id": "requests-content_disposition",
+      "repo": "https://github.com/psf/requests",
+      "commit": "v2.32.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::TestContentEncodingDetection", "-x", "-q", "--no-header"],
+      "split": "benchmark",
+      "notes": "Content-type/encoding detection helpers."
+    },
+    {
+      "task_id": "requests-cookie_utils",
+      "repo": "https://github.com/psf/requests",
+      "commit": "v2.32.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::test_dict_from_cookiejar", "-x", "-q", "--no-header"],
+      "split": "benchmark",
+      "notes": "Cookie jar to dict conversion — pure data structure work."
+    },
+    {
+      "task_id": "flask-request_ctx_basic",
+      "repo": "https://github.com/pallets/flask",
+      "commit": "3.0.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_basic.py::test_method_route", "-x", "-q", "--no-header"],
+      "split": "benchmark",
+      "notes": "Basic Flask route registration + method matching. Small surface."
+    },
+    {
+      "task_id": "flask-blueprint_registration",
+      "repo": "https://github.com/pallets/flask",
+      "commit": "3.0.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_blueprints.py::test_blueprint_specific_error_handling", "-x", "-q", "--no-header"],
+      "split": "benchmark",
+      "notes": "Blueprint-scoped error handling. Exercises the blueprint machinery."
+    },
+
+    {
+      "task_id": "train-requests-to_key_val_list",
+      "repo": "https://github.com/psf/requests",
+      "commit": "v2.32.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::TestToKeyValList", "-x", "-q", "--no-header"],
+      "split": "train_only",
+      "notes": "5 tests. Sequence/dict coercion helper."
+    },
+    {
+      "task_id": "train-requests-unquote_header_value",
+      "repo": "https://github.com/psf/requests",
+      "commit": "v2.32.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::TestUnquoteHeaderValue", "-x", "-q", "--no-header"],
+      "split": "train_only",
+      "notes": "6 tests. Header quoting rules."
+    },
+    {
+      "task_id": "train-requests-is_ipv4_address",
+      "repo": "https://github.com/psf/requests",
+      "commit": "v2.32.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::TestIsIPv4Address", "-x", "-q", "--no-header"],
+      "split": "train_only",
+      "notes": "3 tests. Small surface, exercises the socket-backed path."
+    },
+    {
+      "task_id": "train-requests-is_valid_cidr",
+      "repo": "https://github.com/psf/requests",
+      "commit": "v2.32.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::TestIsValidCIDR", "-x", "-q", "--no-header"],
+      "split": "train_only",
+      "notes": "6 tests. CIDR validation."
+    },
+    {
+      "task_id": "train-requests-guess_filename",
+      "repo": "https://github.com/psf/requests",
+      "commit": "v2.32.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::TestGuessFilename", "-x", "-q", "--no-header"],
+      "split": "train_only",
+      "notes": "4 tests. Filename inference from file-like objects."
+    },
+    {
+      "task_id": "train-requests-iter_slices",
+      "repo": "https://github.com/psf/requests",
+      "commit": "v2.32.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::test_iter_slices", "-x", "-q", "--no-header"],
+      "split": "train_only",
+      "notes": "6 parametrized cases. Module-level parametrized test — different decorator shape from the class-based ones."
+    },
+    {
+      "task_id": "train-requests-parse_header_links",
+      "repo": "https://github.com/psf/requests",
+      "commit": "v2.32.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::test_parse_header_links", "-x", "-q", "--no-header"],
+      "split": "train_only",
+      "notes": "5 parametrized cases. Link header parsing."
+    },
+    {
+      "task_id": "train-requests-to_native_string",
+      "repo": "https://github.com/psf/requests",
+      "commit": "v2.32.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::test_to_native_string", "-x", "-q", "--no-header"],
+      "split": "train_only",
+      "notes": "3 parametrized cases. String coercion."
+    },
+    {
+      "task_id": "train-flask-request_dispatching",
+      "repo": "https://github.com/pallets/flask",
+      "commit": "3.0.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_basic.py::test_request_dispatching", "-x", "-q", "--no-header"],
+      "split": "train_only",
+      "notes": "Uses the app/client fixtures — good source of fixture-machinery attempts."
+    },
+    {
+      "task_id": "train-flask-url_mapping",
+      "repo": "https://github.com/pallets/flask",
+      "commit": "3.0.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_basic.py::test_url_mapping", "-x", "-q", "--no-header"],
+      "split": "train_only",
+      "notes": "URL rule construction via add_url_rule."
+    },
+    {
+      "task_id": "train-flask-endpoint_decorator",
+      "repo": "https://github.com/pallets/flask",
+      "commit": "3.0.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_basic.py::test_endpoint_decorator", "-x", "-q", "--no-header"],
+      "split": "train_only",
+      "notes": "Endpoint registration via decorator — decorator-heavy path."
+    },
+    {
+      "task_id": "train-flask-options_work",
+      "repo": "https://github.com/pallets/flask",
+      "commit": "3.0.3",
+      "test_command": ["python3", "-m", "pytest", "tests/test_basic.py::test_options_work", "-x", "-q", "--no-header"],
+      "split": "train_only",
+      "notes": "Automatic OPTIONS handling."
+    }
+  ]
+}

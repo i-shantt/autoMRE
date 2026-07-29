@@ -114,6 +114,17 @@ class GistifyTask:
     commit: str
     test_command: List[str]
     notes: str = ""
+    # "benchmark" tasks are scored; "train_only" tasks exist purely to
+    # give the oracle more removal attempts to learn from and are never
+    # evaluated. Defaults to benchmark so the scoring manifest needs no
+    # change.
+    split: str = "benchmark"
+
+    @property
+    def repo_slug(self) -> str:
+        """owner/name, used to group rows for leave-one-repo-out CV."""
+        parts = self.repo.rstrip("/").removesuffix(".git").split("/")
+        return "/".join(parts[-2:]) if len(parts) >= 2 else self.repo
 
 
 @dataclass
