@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -198,6 +199,38 @@ def _capture_baseline(work_dir: Path, cmd: List[str],
         return "TIMEOUT", -1
 
 
+def _baseline_health(output: str, rc: int) -> Optional[str]:
+    """Reason the baseline is unusable, or None if it looks real.
+
+    Execution fidelity only means something if the target test actually
+    ran and passed before reduction. When it didn't, the harness happily
+    adopts the failure itself as the behavior to preserve, and the
+    reducer gets rewarded for deleting whatever isn't needed to keep
+    reproducing it — which can be almost the entire repo.
+
+    Both failure modes this catches were live in the manifest:
+    requests-cookie_utils named a test that does not exist in v2.32.3
+    (pytest exits 4, "no tests ran"), and the flask tasks errored during
+    collection under a too-new pytest. Neither announced itself; both
+    scored execution fidelity 1.
+    """
+    lowered = output.lower()
+
+    if rc == 4:
+        return "pytest usage error (rc=4) — bad node id?"
+    if rc == 5:
+        return "no tests collected (rc=5)"
+    if "no tests ran" in lowered:
+        return "no tests ran"
+    if "error: not found:" in lowered:
+        return "test node id not found"
+    if re.search(r"\b\d+ errors? in [\d.]+s", lowered):
+        return "collection/setup error before any assertion"
+    if rc != 0:
+        return f"target test did not pass (rc={rc})"
+    return None
+
+
 def _check_execution_fidelity(work_dir: Path, cmd: List[str],
                               baseline_output: str, baseline_rc: int,
                               timeout: int) -> bool:
@@ -230,7 +263,8 @@ def _count_files_and_lines(root: Path) -> tuple:
 def run_task(task: GistifyTask, timeout: int = 120,
              verbose: bool = False,
              use_coverage_prune: bool = True,
-             python: Optional[str] = None) -> GistifyResult:
+             python: Optional[str] = None,
+             allow_unhealthy_baseline: bool = False) -> GistifyResult:
     python = python or sys.executable
     test_command = _resolve_test_command(task.test_command, python)
     print(f"  → cloning/preparing {task.task_id}...", flush=True)
@@ -273,6 +307,18 @@ def run_task(task: GistifyTask, timeout: int = 120,
                 error="baseline timed out")
 
         orig_files, orig_lines = _count_files_and_lines(work_dir)
+
+        unhealthy = _baseline_health(baseline_out, baseline_rc)
+        if unhealthy and not allow_unhealthy_baseline:
+            print(f"  → SKIP: unusable baseline — {unhealthy}", flush=True)
+            return GistifyResult(
+                task_id=task.task_id, execution_fidelity=0,
+                original_files=orig_files, final_files=orig_files,
+                original_lines=orig_lines, final_lines=orig_lines,
+                single_file_output=False,
+                total_queries=0, time_seconds=0.0,
+                error=f"unusable baseline: {unhealthy}")
+
         print(f"  → baseline ok (rc={baseline_rc}); "
               f"repo has {orig_files} .py files, "
               f"{orig_lines} lines", flush=True)
@@ -359,6 +405,10 @@ def main() -> int:
     parser.add_argument("--no-venv", action="store_true",
         help="Run tests with the ambient interpreter instead of the "
              "pinned benchmark venv. Results may not be comparable.")
+    parser.add_argument("--allow-unhealthy-baseline", action="store_true",
+        help="Score a task even if its target test never ran or failed "
+             "before reduction. Off by default: such a run measures how "
+             "much can be deleted while preserving a broken test.")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -385,7 +435,8 @@ def main() -> int:
         print(f"[gistify] {task.task_id}", flush=True)
         r = run_task(task, timeout=args.timeout, verbose=args.verbose,
                      use_coverage_prune=not args.no_coverage_prune,
-                     python=bench_python)
+                     python=bench_python,
+                     allow_unhealthy_baseline=args.allow_unhealthy_baseline)
         icon = "PASS" if r.execution_fidelity else "FAIL"
         if r.error:
             print(f"  {icon} error: {r.error}")

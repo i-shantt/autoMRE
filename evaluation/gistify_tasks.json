@@ -28,8 +28,8 @@
       "task_id": "requests-cookie_utils",
       "repo": "https://github.com/psf/requests",
       "commit": "v2.32.3",
-      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::test_dict_from_cookiejar", "-x", "-q", "--no-header"],
-      "notes": "Cookie jar to dict conversion — pure data structure work."
+      "test_command": ["python3", "-m", "pytest", "tests/test_utils.py::test_add_dict_to_cookiejar", "-x", "-q", "--no-header"],
+      "notes": "add_dict_to_cookiejar over both cookielib.CookieJar and RequestsCookieJar (2 parametrized cases)."
     },
     {
       "task_id": "flask-request_ctx_basic",
