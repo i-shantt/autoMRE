@@ -77,7 +77,9 @@ class Dataset:
         return len(self.y) - self.n_safe
 
 
-def load_dataset(path: Path | str) -> Dataset:
+def load_dataset(path: Path | str,
+                 task_prefix: Optional[str] = None,
+                 exclude_task_prefix: Optional[str] = None) -> Dataset:
     """Read the JSONL attempt log into aligned feature/label lists.
 
     Column order comes from FEATURE_NAMES rather than from the row's own
@@ -96,6 +98,11 @@ def load_dataset(path: Path | str) -> Dataset:
             if not line:
                 continue
             row = json.loads(line)
+            task = row.get("task_id") or ""
+            if task_prefix and not task.startswith(task_prefix):
+                continue
+            if exclude_task_prefix and task.startswith(exclude_task_prefix):
+                continue
             missing = [c for c in FEATURE_NAMES if c not in row]
             if missing:
                 raise ValueError(
@@ -266,11 +273,13 @@ def permutation_importances(data: Dataset, top_n: int = 15) -> List[Dict]:
 
 def train(data_path: Path | str,
           model_out: Path | str = DEFAULT_MODEL_PATH,
-          report_out: Optional[Path | str] = None) -> Dict[str, Any]:
+          report_out: Optional[Path | str] = None,
+          task_prefix: Optional[str] = None,
+          exclude_task_prefix: Optional[str] = None) -> Dict[str, Any]:
     """Cross-validate, fit on everything, and write the model."""
     import numpy as np
 
-    data = load_dataset(data_path)
+    data = load_dataset(data_path, task_prefix, exclude_task_prefix)
     if len(data) == 0:
         raise ValueError(f"{data_path} has no rows")
 
@@ -440,9 +449,15 @@ def main() -> int:
                         help="Path to oracle_training_data.jsonl")
     parser.add_argument("--model-out", default=str(DEFAULT_MODEL_PATH))
     parser.add_argument("--report-out", default=None)
+    parser.add_argument("--task-prefix", default=None,
+        help="Train only on rows whose task_id starts with this. Use to "
+             "hold the scored tasks out entirely.")
+    parser.add_argument("--exclude-task-prefix", default=None,
+        help="Drop rows whose task_id starts with this.")
     args = parser.parse_args()
 
-    report = train(args.data, args.model_out, args.report_out)
+    report = train(args.data, args.model_out, args.report_out,
+                   args.task_prefix, args.exclude_task_prefix)
     print(_format_report(report))
     if "error" not in report:
         print()

@@ -1,0 +1,111 @@
+{
+  "n_rows": 2710,
+  "n_safe": 175,
+  "n_unsafe": 2535,
+  "safe_rate": 0.06457564575645756,
+  "repos": [
+    "pallets/flask",
+    "psf/requests"
+  ],
+  "n_tasks": 2,
+  "feature_count": 40,
+  "cv": {
+    "folds": [
+      {
+        "held_out_repo": "pallets/flask",
+        "n_train": 1412,
+        "n_test": 1298,
+        "test_safe_rate": 0.0,
+        "auc": null,
+        "precision_at_recall_0.5": NaN,
+        "precision_above_0.9": 0.0,
+        "n_above_0.9": 633,
+        "precision_below_0.1": 1.0,
+        "n_below_0.1": 257
+      },
+      {
+        "held_out_repo": "psf/requests",
+        "skipped": "training fold has a single class"
+      }
+    ],
+    "pooled_out_of_fold": {}
+  },
+  "importances": [
+    {
+      "feature": "sibling_count",
+      "importance": 0.13579566074950686,
+      "std": 0.009712284608566255
+    },
+    {
+      "feature": "is_test_file",
+      "importance": 0.07864852071005914,
+      "std": 0.010497623128027605
+    },
+    {
+      "feature": "n_bytes",
+      "importance": 0.06350543815159196,
+      "std": 0.004411030975810441
+    },
+    {
+      "feature": "node_type_assignment",
+      "importance": 0.05409219498450266,
+      "std": 0.009218259697935978
+    },
+    {
+      "feature": "coverage_ratio",
+      "importance": 0.03166153846153842,
+      "std": 0.0008884303882496006
+    },
+    {
+      "feature": "n_lines",
+      "importance": 0.029076923076923066,
+      "std": 0.0031645405073079057
+    },
+    {
+      "feature": "node_type_function_definition",
+      "importance": 0.025912651451112954,
+      "std": 0.002651650206667005
+    },
+    {
+      "feature": "is_init_file",
+      "importance": 0.008858833474218054,
+      "std": 0.003517499293363979
+    },
+    {
+      "feature": "n_child_units",
+      "importance": 0.008014764722456968,
+      "std": 0.0014362275106277022
+    },
+    {
+      "feature": "node_type_expression_statement",
+      "importance": 0.005393632009016614,
+      "std": 0.0011438966330407673
+    },
+    {
+      "feature": "references_in_file",
+      "importance": 0.0050459284305438,
+      "std": 0.0010153881120853686
+    },
+    {
+      "feature": "node_type_class_definition",
+      "importance": 0.004093885601577862,
+      "std": 0.0006582518024081585
+    },
+    {
+      "feature": "node_type_import_statement",
+      "importance": 0.002941786418709491,
+      "std": 0.0007932957010783025
+    },
+    {
+      "feature": "is_private",
+      "importance": 0.0013812341504649051,
+      "std": 0.0002295059986667591
+    },
+    {
+      "feature": "node_type_import_from_statement",
+      "importance": 0.0009238658777120379,
+      "std": 0.0005190394623366409
+    }
+  ],
+  "model_path": "/Users/ishant/Downloads/workspace/project/evaluation/oracle_model_heldout.pkl"
+}

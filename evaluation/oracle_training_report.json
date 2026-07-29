@@ -1,0 +1,111 @@
+{
+  "n_rows": 10074,
+  "n_safe": 704,
+  "n_unsafe": 9370,
+  "safe_rate": 0.06988286678578519,
+  "repos": [
+    "pallets/flask",
+    "psf/requests"
+  ],
+  "n_tasks": 8,
+  "feature_count": 40,
+  "cv": {
+    "folds": [
+      {
+        "held_out_repo": "pallets/flask",
+        "n_train": 6180,
+        "n_test": 3894,
+        "test_safe_rate": 0.0,
+        "auc": null,
+        "precision_at_recall_0.5": NaN,
+        "precision_above_0.9": 0.0,
+        "n_above_0.9": 351,
+        "precision_below_0.1": 1.0,
+        "n_below_0.1": 1316
+      },
+      {
+        "held_out_repo": "psf/requests",
+        "skipped": "training fold has a single class"
+      }
+    ],
+    "pooled_out_of_fold": {}
+  },
+  "importances": [
+    {
+      "feature": "sibling_count",
+      "importance": 0.14219390493111486,
+      "std": 0.004933020569510603
+    },
+    {
+      "feature": "n_bytes",
+      "importance": 0.07361398048656256,
+      "std": 0.0018502739142001795
+    },
+    {
+      "feature": "is_test_file",
+      "importance": 0.07228184577229074,
+      "std": 0.004711777126276411
+    },
+    {
+      "feature": "depth_in_ast",
+      "importance": 0.054570035837295104,
+      "std": 0.0027911861116846587
+    },
+    {
+      "feature": "n_lines",
+      "importance": 0.03879431909139425,
+      "std": 0.002459336989068097
+    },
+    {
+      "feature": "coverage_ratio",
+      "importance": 0.019221766760454118,
+      "std": 0.0004962965370642764
+    },
+    {
+      "feature": "node_type_function_definition",
+      "importance": 0.014736564046279266,
+      "std": 0.0006896835581046829
+    },
+    {
+      "feature": "node_type_expression_statement",
+      "importance": 0.010483348695061723,
+      "std": 0.000840724005573607
+    },
+    {
+      "feature": "is_init_file",
+      "importance": 0.008747877655962032,
+      "std": 0.001613398379260359
+    },
+    {
+      "feature": "node_type_class_definition",
+      "importance": 0.007708846233142585,
+      "std": 0.0004302108039358448
+    },
+    {
+      "feature": "references_in_file",
+      "importance": 0.005183271987484283,
+      "std": 0.0006787039353359674
+    },
+    {
+      "feature": "n_child_units",
+      "importance": 0.0032663556927331585,
+      "std": 0.00034877953051007794
+    },
+    {
+      "feature": "node_type_import_statement",
+      "importance": 0.003129312906277315,
+      "std": 0.0006514718142168893
+    },
+    {
+      "feature": "n_covered_lines",
+      "importance": 0.0018146951101193798,
+      "std": 5.961522974256912e-05
+    },
+    {
+      "feature": "is_private",
+      "importance": 0.0012420412098574584,
+      "std": 0.00014625211221661023
+    }
+  ],
+  "model_path": "/Users/ishant/Downloads/workspace/project/autorepro_min/src/ml/removability_model.pkl"
+}

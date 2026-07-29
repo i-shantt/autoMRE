@@ -1,0 +1,71 @@
+{
+  "manifest": "/Users/ishant/Downloads/workspace/project/evaluation/oracle_training_tasks.json",
+  "interpreter": "/Users/ishant/Downloads/workspace/project/.gistify_venv/bin/python",
+  "total_rows": 10074,
+  "per_task": [
+    {
+      "task_id": "requests-super_len_partial",
+      "split": "benchmark",
+      "repo_slug": "psf/requests",
+      "rows": 1392,
+      "execution_fidelity": 1,
+      "error": null
+    },
+    {
+      "task_id": "requests-guess_json_utf",
+      "split": "benchmark",
+      "repo_slug": "psf/requests",
+      "rows": 1324,
+      "execution_fidelity": 1,
+      "error": null
+    },
+    {
+      "task_id": "requests-content_disposition",
+      "split": "benchmark",
+      "repo_slug": "psf/requests",
+      "rows": 654,
+      "execution_fidelity": 1,
+      "error": null
+    },
+    {
+      "task_id": "requests-cookie_utils",
+      "split": "benchmark",
+      "repo_slug": "psf/requests",
+      "rows": 1398,
+      "execution_fidelity": 1,
+      "error": null
+    },
+    {
+      "task_id": "flask-request_ctx_basic",
+      "split": "benchmark",
+      "repo_slug": "pallets/flask",
+      "rows": 1298,
+      "execution_fidelity": 1,
+      "error": null
+    },
+    {
+      "task_id": "flask-blueprint_registration",
+      "split": "benchmark",
+      "repo_slug": "pallets/flask",
+      "rows": 1298,
+      "execution_fidelity": 1,
+      "error": null
+    },
+    {
+      "task_id": "train-requests-to_key_val_list",
+      "split": "train_only",
+      "repo_slug": "psf/requests",
+      "rows": 1412,
+      "execution_fidelity": 1,
+      "error": null
+    },
+    {
+      "task_id": "train-flask-request_dispatching",
+      "split": "train_only",
+      "repo_slug": "pallets/flask",
+      "rows": 1298,
+      "execution_fidelity": 1,
+      "error": null
+    }
+  ]
+}
