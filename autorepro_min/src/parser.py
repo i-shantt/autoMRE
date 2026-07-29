@@ -34,6 +34,12 @@ class CodeUnit:
     children: List[CodeUnit] = field(default_factory=list)
     execution_count: int = 0  # From coverage data
     can_remove: bool = True
+    # The tree-sitter node this unit came from. Carried so the learned
+    # oracle can read structural context (parent decorators, depth,
+    # siblings) that the flattened CodeUnit drops. Excluded from equality
+    # and repr: it is provenance, not identity, and Node has no useful
+    # printed form.
+    ts_node: Optional[Node] = field(default=None, compare=False, repr=False)
 
     @property
     def size(self) -> int:
@@ -179,7 +185,8 @@ class PythonParser:
                     text=source[node.start_byte:node.end_byte],
                     children=children,
                     execution_count=self._count_execution(node, execution_lines),
-                    can_remove=False  # Can't remove structural nodes directly
+                    can_remove=False,  # Can't remove structural nodes directly
+                    ts_node=node
                 )
             return None
 
@@ -201,7 +208,8 @@ class PythonParser:
                     text=source[node.start_byte:node.end_byte],
                     children=children,
                     execution_count=self._count_execution(node, execution_lines),
-                    can_remove=False
+                    can_remove=False,
+                    ts_node=node
                 )
             return None
 
@@ -222,7 +230,8 @@ class PythonParser:
             text=source[node.start_byte:node.end_byte],
             children=children,
             execution_count=self._count_execution(node, execution_lines),
-            can_remove=True
+            can_remove=True,
+            ts_node=node
         )
 
     def _count_execution(self, node: Node, execution_lines: Set[int]) -> int:
@@ -304,6 +313,45 @@ def extract_line_ranges(units: List[CodeUnit]) -> Set[int]:
     for unit in units:
         lines.update(range(unit.start_line, unit.end_line + 1))
     return lines
+
+
+def remap_executed_lines(source: str,
+                         removed_byte_ranges: List[Tuple[int, int]],
+                         executed: Set[int]) -> Set[int]:
+    """Translate coverage line numbers across a byte-range removal.
+
+    Deleting bytes shifts every line number after the cut, so any
+    coverage set held across a removal silently starts describing the
+    wrong lines. This walks the pre-removal source once and returns the
+    executed set expressed in the post-removal numbering. Lines that were
+    removed outright drop out.
+
+    Removals slice [start, end), stopping short of the unit's trailing
+    newline, so a removal usually leaves a blank line behind rather than
+    collapsing the line. The byte-level walk handles that — and
+    partial-line cuts — exactly, where subtracting line spans would not.
+    """
+    if not removed_byte_ranges or not executed:
+        return set(executed)
+
+    kept = bytearray(b"\x01") * len(source)
+    for start, end in removed_byte_ranges:
+        for i in range(max(0, start), min(end, len(source))):
+            kept[i] = 0
+
+    # Record each original line's new number at its first surviving byte.
+    mapping: Dict[int, int] = {}
+    old_line = 1
+    new_line = 1
+    for i, ch in enumerate(source):
+        if kept[i] and old_line not in mapping:
+            mapping[old_line] = new_line
+        if ch == '\n':
+            old_line += 1
+            if kept[i]:
+                new_line += 1
+
+    return {mapping[line] for line in executed if line in mapping}
 
 
 def format_code_without_units(source: str, units_to_remove: List[CodeUnit]) -> str:

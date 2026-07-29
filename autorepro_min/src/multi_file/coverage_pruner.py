@@ -46,6 +46,7 @@ if str(_SRC_DIR) not in _sys.path:
     _sys.path.insert(0, str(_SRC_DIR))
 
 from parser import PythonParser
+from parser import remap_executed_lines as _remap_by_bytes
 
 
 @dataclass
@@ -73,6 +74,20 @@ class PruneResult:
     @property
     def any_removed(self) -> bool:
         return bool(self.removed)
+
+
+def remap_executed_lines(source: str,
+                         removed: List[RemovedRange],
+                         executed: Set[int]) -> Set[int]:
+    """Translate coverage line numbers across a Phase 4a prune.
+
+    Thin adapter over the parser's byte-range remapper. Phase 4b's
+    prioritization and the oracle's coverage features both hold coverage
+    across the prune, and would read it against shifted lines without
+    this.
+    """
+    return _remap_by_bytes(
+        source, [(r.start_byte, r.end_byte) for r in removed], executed)
 
 
 class CoveragePruner:

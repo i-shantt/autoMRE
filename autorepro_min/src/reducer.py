@@ -19,7 +19,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, List, Optional, Set, Tuple
 
-from parser import CodeUnit, format_code_without_units, PythonParser
+from parser import (
+    CodeUnit,
+    format_code_without_units,
+    PythonParser,
+    remap_executed_lines,
+)
 from tracer import ExecutionTracer, ExecutionTrace
 from validator import Validator
 
@@ -82,11 +87,16 @@ class HybridDeltaDebugger:
         self.tracer = tracer or ExecutionTracer()
         self.validator = validator or Validator()
         self.verbose = verbose
+        # Set per-reduce(); see reduce() for why these exist.
+        self._file_path: Optional[Path] = None
+        self._executed: Optional[Set[int]] = None
 
     def reduce(self, source_code: str,
                test_command: Optional[List[str]] = None,
                cwd: Optional[Path] = None,
-               max_iterations: int = 100) -> ReductionResult:
+               max_iterations: int = 100,
+               file_path: Optional[Path] = None,
+               executed_lines: Optional[Set[int]] = None) -> ReductionResult:
         """
         Reduce source code while preserving bug reproduction.
 
@@ -95,12 +105,24 @@ class HybridDeltaDebugger:
             test_command: Command to reproduce the bug
             cwd: Working directory for execution
             max_iterations: Maximum reduction iterations
+            file_path: Path the source came from. Only used as context —
+                the reducer never reads or writes it — but the learned
+                oracle needs it to tell a test module from a conftest.
+            executed_lines: 1-indexed coverage for `source_code`. When a
+                caller already knows which lines ran under the real test
+                command, passing it here beats the fallback below:
+                without it the reducer traces the source standalone,
+                which for a library module records little more than
+                import-time execution and marks every function body cold.
 
         Returns:
             ReductionResult with minimized code and statistics
         """
         start_time = time.time()
         original_lines = len(source_code.split('\n'))
+
+        self._file_path = Path(file_path) if file_path is not None else None
+        self._executed = set(executed_lines) if executed_lines is not None else None
 
         stats = ReductionStats(
             original_size=original_lines,
@@ -182,7 +204,16 @@ class HybridDeltaDebugger:
                 stats.queries += 1
 
                 if is_valid:
-                    # Successful removal
+                    # Successful removal. Shift the coverage set into the
+                    # new numbering before current_code changes under it,
+                    # otherwise every later iteration reads coverage
+                    # against lines that have moved.
+                    if self._executed is not None:
+                        self._executed = remap_executed_lines(
+                            current_code,
+                            [(unit.start_byte, unit.end_byte)],
+                            self._executed)
+
                     current_code = candidate
                     stats.successful_removals += 1
                     improved = True
@@ -217,13 +248,23 @@ class HybridDeltaDebugger:
     def _get_units(self, source_code: str, trace: ExecutionTrace) -> List[CodeUnit]:
         """Get removable units from source code."""
         tree = self.parser.parse_source(source_code)
+        return self.parser.extract_units(tree, source_code,
+                                         self._current_executed(trace))
 
-        # Get executed lines for prioritization
-        executed_lines = set()
+    def _current_executed(self, trace: ExecutionTrace) -> Set[int]:
+        """Coverage for the code as it stands now.
+
+        Prefers what the caller supplied (real coverage under the test
+        command, kept in step with each removal); falls back to the
+        reducer's own standalone trace.
+        """
+        if self._executed is not None:
+            return self._executed
+
+        executed_lines: Set[int] = set()
         for lines in trace.executed_lines.values():
             executed_lines.update(lines)
-
-        return self.parser.extract_units(tree, source_code, executed_lines)
+        return executed_lines
 
     def _get_flat_units(self, source_code: str, trace: ExecutionTrace) -> List[CodeUnit]:
         """Get flattened list of removable units."""

@@ -29,7 +29,7 @@ if str(_SRC_DIR) not in _sys.path:
 
 from reducer import HybridDeltaDebugger
 
-from .coverage_pruner import CoveragePruner
+from .coverage_pruner import CoveragePruner, remap_executed_lines
 from .dependency_analyzer import (
     DependencyAnalyzer,
     FileClass,
@@ -245,6 +245,11 @@ class MultiFileDebugger:
         for f in final_survivors:
             original_source = f.read_text()
             original_lines = len(original_source.splitlines())
+            # Coverage for this file as it currently stands. Phase 4a may
+            # shift it below; Phase 4b then consumes whatever survives.
+            file_executed: Optional[Set[int]] = (
+                set(fresh_executed.get(f, set()))
+                if self.use_coverage_prune else None)
 
             # Phase 4a — coverage-based bulk prune (one query per file
             # to strip everything HDD-E would otherwise discover as
@@ -257,6 +262,11 @@ class MultiFileDebugger:
                     f.write_text(prune.pruned_source)
                     queries += 1
                     if validator.validate():
+                        # The prune stuck, so the file Phase 4b sees is
+                        # renumbered. Shift coverage to match before it
+                        # gets read against the wrong lines.
+                        file_executed = remap_executed_lines(
+                            original_source, prune.removed, executed)
                         self._log(
                             f"  {f.relative_to(project_dir)}: "
                             f"coverage-pruned {prune.n_removed} "
@@ -280,7 +290,9 @@ class MultiFileDebugger:
             try:
                 result = reducer.reduce(source_code=current_source,
                                         test_command=None,
-                                        cwd=project_dir)
+                                        cwd=project_dir,
+                                        file_path=f,
+                                        executed_lines=file_executed)
             except Exception as exc:
                 self._log(f"  {f.relative_to(project_dir)}: reduction "
                           f"errored ({exc}); leaving as-is")
