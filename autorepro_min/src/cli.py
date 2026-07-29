@@ -232,6 +232,9 @@ def cmd_reduce_project(args):
         match_strategy=args.strategy,
         aggressive_inline=getattr(args, "aggressive_inline", False),
         use_coverage_prune=not getattr(args, "no_coverage_prune", False),
+        use_learned_oracle=getattr(args, "use_learned_oracle", False),
+        oracle_model_path=(Path(args.oracle_model)
+                           if getattr(args, "oracle_model", None) else None),
     )
     result = debugger.reduce_project(work_dir, test_command)
 
@@ -382,6 +385,17 @@ Examples:
     rp.add_argument('--no-coverage-prune', action='store_true',
                     help='Disable Phase 4a coverage-based bulk pruning '
                          '(useful for ablation studies). Default is on.')
+    rp.add_argument('--use-learned-oracle', action='store_true',
+                    help='Consult the learned removability oracle: filter '
+                         'Phase 4a prune candidates and skip hopeless '
+                         'Phase 4b attempts. Requires the [oracle] extra '
+                         'and a trained model; falls back to the heuristic '
+                         'if either is missing. Note the Phase 4b skip can '
+                         'leave removable code in the output if the model '
+                         'is miscalibrated.')
+    rp.add_argument('--oracle-model', default=None, metavar='PATH',
+                    help='Path to the pickled oracle model. Defaults to '
+                         'the one shipped in autorepro_min/src/ml/.')
     rp.add_argument('-v', '--verbose', action='store_true',
                     help='Verbose progress output')
 

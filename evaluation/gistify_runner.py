@@ -140,6 +140,9 @@ class GistifyResult:
     total_queries: int
     time_seconds: float
     error: Optional[str] = None
+    oracle_enabled: bool = False
+    oracle_skipped_attempts: int = 0
+    oracle_held_back_files: int = 0
 
 
 # ------------------------------------------------------------ repo mgmt
@@ -340,7 +343,9 @@ def run_task(task: GistifyTask, timeout: int = 120,
              verbose: bool = False,
              use_coverage_prune: bool = True,
              python: Optional[str] = None,
-             allow_unhealthy_baseline: bool = False) -> GistifyResult:
+             allow_unhealthy_baseline: bool = False,
+             use_learned_oracle: bool = False,
+             oracle_model_path: Optional[str] = None) -> GistifyResult:
     python = python or sys.executable
     test_command = _resolve_test_command(task.test_command, python)
     print(f"  → cloning/preparing {task.task_id}...", flush=True)
@@ -426,6 +431,9 @@ def run_task(task: GistifyTask, timeout: int = 120,
             match_strategy="output_match",
             aggressive_inline=True,
             use_coverage_prune=use_coverage_prune,
+            use_learned_oracle=use_learned_oracle,
+            oracle_model_path=(Path(oracle_model_path)
+                               if oracle_model_path else None),
         )
 
         print(f"  → reducing...", flush=True)
@@ -458,6 +466,9 @@ def run_task(task: GistifyTask, timeout: int = 120,
             single_file_output=(final_files == 1),
             total_queries=summary.total_queries,
             time_seconds=elapsed,
+            oracle_enabled=summary.oracle_enabled,
+            oracle_skipped_attempts=summary.oracle_skipped_attempts,
+            oracle_held_back_files=summary.oracle_held_back_files,
         )
 
 
@@ -507,11 +518,18 @@ def main() -> int:
         help="Score a task even if its target test never ran or failed "
              "before reduction. Off by default: such a run measures how "
              "much can be deleted while preserving a broken test.")
+    parser.add_argument("--use-learned-oracle", action="store_true",
+        help="Filter Phase 4a candidates and skip hopeless Phase 4b "
+             "attempts using the learned oracle.")
+    parser.add_argument("--oracle-model", default=None,
+        help="Path to the pickled oracle model.")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
     if args.output is None:
         suffix = "_no_coverage" if args.no_coverage_prune else ""
+        if args.use_learned_oracle:
+            suffix += "_oracle"
         args.output = str(_ROOT / "evaluation" /
                           f"results_gistify_heuristic{suffix}.json")
 
@@ -534,7 +552,9 @@ def main() -> int:
         r = run_task(task, timeout=args.timeout, verbose=args.verbose,
                      use_coverage_prune=not args.no_coverage_prune,
                      python=bench_python,
-                     allow_unhealthy_baseline=args.allow_unhealthy_baseline)
+                     allow_unhealthy_baseline=args.allow_unhealthy_baseline,
+                     use_learned_oracle=args.use_learned_oracle,
+                     oracle_model_path=args.oracle_model)
         icon = "PASS" if r.execution_fidelity else "FAIL"
         if r.error:
             print(f"  {icon} error: {r.error}")
@@ -551,6 +571,7 @@ def main() -> int:
         "config": {
             "prioritizer": "heuristic",
             "coverage_prune": not args.no_coverage_prune,
+            "learned_oracle": args.use_learned_oracle,
             "test_interpreter": bench_python,
             "pinned_pytest": (None if (args.python or args.no_venv)
                               else _PINNED_PYTEST),
