@@ -57,7 +57,7 @@ class MultiFileValidator:
 
     def __init__(self, command: List[str], project_dir: Path,
                  timeout: int = 60,
-                 match_strategy: str = "error_type"):
+                 match_strategy: str = "output_match"):
         self.command = list(command)
         self.project_dir = Path(project_dir).resolve()
         self.timeout = timeout

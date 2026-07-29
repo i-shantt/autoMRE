@@ -111,7 +111,7 @@ class Validator:
 
     def __init__(self, original_behavior: Optional[OriginalBehavior] = None,
                  timeout: int = 30,
-                 match_strategy: str = "error_type"):
+                 match_strategy: str = "output_match"):
         """
         Initialize validator.
 

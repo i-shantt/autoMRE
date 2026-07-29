@@ -79,7 +79,7 @@ class MultiFileDebugger:
     """Multi-File Hierarchical Delta Debugging with Execution guidance."""
 
     def __init__(self, verbose: bool = False, timeout: int = 60,
-                 match_strategy: str = "error_type",
+                 match_strategy: str = "output_match",
                  aggressive_inline: bool = False,
                  use_coverage_prune: bool = True,
                  use_learned_oracle: bool = False,
