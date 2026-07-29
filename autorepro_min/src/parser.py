@@ -213,12 +213,21 @@ class PythonParser:
                 )
             return None
 
-        # This is a removable unit
-        # Also extract any nested removable units (for hierarchical reduction)
+        # This is a removable unit. Keep descending so nested removable
+        # units stay reachable.
+        #
+        # Structural children must be kept even though they can't be
+        # removed themselves. A function_definition's children are
+        # `def`, the name, the parameters, `:` and a `block`; the block
+        # is structural, so dropping non-removable children here severed
+        # the only path to every statement in the body. The effect was
+        # that HDD-E saw whole top-level definitions and nothing else —
+        # it could delete an entire function but never a line inside
+        # one, and never a method inside a class.
         children = []
         for child in node.children:
             child_unit = self._node_to_unit(child, source, execution_lines)
-            if child_unit and child_unit.can_remove:
+            if child_unit is not None:
                 children.append(child_unit)
 
         return CodeUnit(

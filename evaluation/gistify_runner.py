@@ -65,6 +65,11 @@ _REPO_CACHE = _ROOT / ".gistify_repo_cache"
 # pin has to be on pytest, not on flask.
 _BENCH_VENV = _ROOT / ".gistify_venv"
 _PINNED_PYTEST = "pytest==9.0.0"
+# coverage runs *inside* the benchmark interpreter: Phase 1 traces the
+# reproduction command, and a trace taken under a different interpreter
+# describes a different environment than the one reduction is validated
+# against.
+_BENCH_REQUIREMENTS = [_PINNED_PYTEST, "coverage"]
 
 
 def _venv_python(venv_dir: Path) -> Path:
@@ -80,17 +85,17 @@ def _ensure_bench_python(verbose: bool = False) -> str:
         return str(py)
 
     print(f"  provisioning benchmark venv at {_BENCH_VENV.name} "
-          f"({_PINNED_PYTEST})...", flush=True)
+          f"({', '.join(_BENCH_REQUIREMENTS)})...", flush=True)
     subprocess.run([sys.executable, "-m", "venv", str(_BENCH_VENV)],
                    check=True)
     subprocess.run([str(py), "-m", "pip", "install", "--quiet",
                     "--upgrade", "pip"], check=False)
     proc = subprocess.run(
-        [str(py), "-m", "pip", "install", "--quiet", _PINNED_PYTEST],
+        [str(py), "-m", "pip", "install", "--quiet", *_BENCH_REQUIREMENTS],
         capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(
-            f"could not install {_PINNED_PYTEST}: {proc.stderr[-800:]}")
+            f"could not install {_BENCH_REQUIREMENTS}: {proc.stderr[-800:]}")
     return str(py)
 
 
@@ -434,6 +439,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
             use_learned_oracle=use_learned_oracle,
             oracle_model_path=(Path(oracle_model_path)
                                if oracle_model_path else None),
+            python=python,
         )
 
         print(f"  → reducing...", flush=True)

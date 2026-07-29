@@ -14,6 +14,7 @@ Based on:
 
 from __future__ import annotations
 
+import ast
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +28,53 @@ from parser import (
 )
 from tracer import ExecutionTracer, ExecutionTrace
 from validator import Validator
+
+
+def _overlaps(span: Tuple[int, int],
+              spans: List[Tuple[int, int]]) -> bool:
+    """True if `span` intersects anything already scheduled for removal."""
+    start, end = span
+    for s, e in spans:
+        if start < e and s < end:
+            return True
+    return False
+
+
+def _apply_removals(source: str, spans: List[Tuple[int, int]]) -> str:
+    """Delete byte ranges, back to front so offsets stay valid."""
+    out = source
+    for start, end in sorted(spans, key=lambda r: -r[0]):
+        out = out[:start] + out[end:]
+    return out
+
+
+def _is_parseable(source: str) -> bool:
+    """Cheap local check that a candidate is even syntactically valid.
+
+    Removing a unit can strand a block with no body, which no oracle
+    would ever accept. Catching that here turns a ~170ms subprocess into
+    a microsecond parse and rejects exactly the same candidates.
+    """
+    try:
+        ast.parse(source)
+        return True
+    except (SyntaxError, ValueError):
+        return False
+
+
+def _collapse_blank_lines(source: str) -> str:
+    """Drop lines left empty by byte-range removals.
+
+    Blank lines carry no meaning in Python outside string literals, and
+    a reduced file is mostly blank lines because each removal stops short
+    of its trailing newline. The result is checked for parseability here
+    and validated by the caller before being accepted.
+    """
+    kept = [line for line in source.splitlines() if line.strip()]
+    if not kept:
+        return source
+    out = "\n".join(kept) + ("\n" if source.endswith("\n") else "")
+    return out if _is_parseable(out) else source
 
 
 def _make_training_logger():
@@ -60,6 +108,7 @@ class ReductionStats:
     successful_removals: int  # Number of successful unit removals
     failed_removals: int  # Number of failed unit removals
     oracle_skipped: int = 0  # Attempts the learned oracle declined to make
+    syntax_rejected: int = 0  # Candidates rejected locally, no query spent
 
     @property
     def reduction_rate(self) -> float:
@@ -210,47 +259,55 @@ class HybridDeltaDebugger:
         if self.verbose:
             print("\nStep 3: Starting reduction...")
 
-        iteration = 0
-        improved = True
-
-        while improved and iteration < max_iterations:
-            improved = False
-            iteration += 1
+        # Each pass walks every candidate once, accumulating the removals
+        # that stick; passes repeat until one changes nothing (1-minimal
+        # with respect to these units). The previous shape restarted from
+        # the top after every success, so a unit that failed was retried
+        # on every subsequent iteration — O(passes x units) queries for
+        # the same result. max_iterations is now a safety valve on passes
+        # rather than a cap on total removals.
+        for iteration in range(1, max_iterations + 1):
             stats.iterations += 1
 
             if self.verbose:
-                print(f"\nIteration {iteration}: {len(current_code.split(chr(10)))} lines")
+                print(f"\nPass {iteration}: "
+                      f"{len(current_code.split(chr(10)))} lines")
 
-            # Get flat list of removable units
-            flat_units = self._get_flat_units(current_code, orig_trace)
-
-            if not flat_units:
+            candidates = self._candidates(current_code, orig_trace)
+            if not candidates:
                 break
 
-            # Prioritize units (execution-guided, then size)
-            prioritized = self._prioritize_units(flat_units)
-
-            # Ask the oracle about the whole batch at once — one matrix
-            # multiply beats one call per unit, and the answer is only
-            # useful if it costs far less than the query it replaces.
-            hopeless = self._oracle_verdicts(prioritized, current_code,
+            hopeless = self._oracle_verdicts(candidates, current_code,
                                              orig_trace)
 
-            # Try removing each unit
-            for unit in prioritized:
+            removed_spans: List[Tuple[int, int]] = []
+            for unit in candidates:
+                span = (unit.start_byte, unit.end_byte)
+
+                # Skip anything already inside a removed region: its
+                # bytes are gone, so the edit is meaningless and the
+                # overlapping slice would corrupt the source.
+                if _overlaps(span, removed_spans):
+                    continue
+
                 if id(unit) in hopeless:
                     stats.oracle_skipped += 1
                     continue
-                # Attempt removal
-                candidate = self._remove_units(current_code, [unit])
 
-                # Validate
+                candidate = _apply_removals(current_code,
+                                            removed_spans + [span])
+
+                # Reject unparseable candidates locally. The oracle here
+                # is a subprocess costing ~170ms; a syntax check costs
+                # microseconds and rejects exactly the same candidates.
+                if not _is_parseable(candidate):
+                    stats.syntax_rejected += 1
+                    continue
+
                 is_valid = self._validate(candidate, test_command, cwd)
                 stats.queries += 1
 
-                # Capture the attempt while current_code and the coverage
-                # set still describe the state the unit was measured in —
-                # a successful removal rewrites both below.
+                # Log against the state the unit was measured in.
                 if self._training_logger is not None:
                     self._training_logger.log_attempt(
                         unit=unit,
@@ -260,27 +317,35 @@ class HybridDeltaDebugger:
                         was_safely_removable=is_valid)
 
                 if is_valid:
-                    # Successful removal. Shift the coverage set into the
-                    # new numbering before current_code changes under it,
-                    # otherwise every later iteration reads coverage
-                    # against lines that have moved.
-                    if self._executed is not None:
-                        self._executed = remap_executed_lines(
-                            current_code,
-                            [(unit.start_byte, unit.end_byte)],
-                            self._executed)
-
-                    current_code = candidate
+                    removed_spans.append(span)
                     stats.successful_removals += 1
-                    improved = True
-
                     if self.verbose:
-                        print(f"  Removed {unit.node_type} (L{unit.start_line}-{unit.end_line})")
-
-                    # Re-parse with updated code
-                    break  # Start new iteration
+                        print(f"  Removed {unit.node_type} "
+                              f"(L{unit.start_line}-{unit.end_line})")
                 else:
                     stats.failed_removals += 1
+
+            if not removed_spans:
+                break
+
+            # Shift coverage into the new numbering once for the whole
+            # pass, before current_code moves under it.
+            if self._executed is not None:
+                self._executed = remap_executed_lines(
+                    current_code, removed_spans, self._executed)
+            current_code = _apply_removals(current_code, removed_spans)
+
+        # Deleted statements leave their trailing newline behind, so a
+        # reduced file is mostly blank lines — on real inputs ~80% of
+        # what survives. That inflates the reported size and makes the
+        # result useless as a reproducer. Collapsing them is one query.
+        cleaned = _collapse_blank_lines(current_code)
+        if cleaned != current_code:
+            stats.queries += 1
+            if self._validate(cleaned, test_command, cwd):
+                current_code = cleaned
+            elif self.verbose:
+                print("  blank-line cleanup broke the bug — kept as-is")
 
         # Final stats
         stats.final_size = len(current_code.split('\n'))
@@ -326,6 +391,25 @@ class HybridDeltaDebugger:
         """Get flattened list of removable units."""
         units = self._get_units(source_code, trace)
         return self.parser.get_flat_units(units)
+
+    def _candidates(self, source_code: str,
+                    trace: ExecutionTrace) -> List[CodeUnit]:
+        """Prioritized, de-duplicated removal candidates.
+
+        tree-sitter wraps `a = 1` in an expression_statement around an
+        assignment covering the same bytes, so without deduping the same
+        edit is proposed twice and costs two queries.
+        """
+        units = self._get_flat_units(source_code, trace)
+        seen = set()
+        unique: List[CodeUnit] = []
+        for unit in units:
+            key = (unit.start_byte, unit.end_byte)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(unit)
+        return self._prioritize_units(unique)
 
     def _prioritize_units(self, units: List[CodeUnit]) -> List[CodeUnit]:
         """Prioritize units for reduction (cold first, then by size)."""

@@ -235,6 +235,7 @@ def cmd_reduce_project(args):
         use_learned_oracle=getattr(args, "use_learned_oracle", False),
         oracle_model_path=(Path(args.oracle_model)
                            if getattr(args, "oracle_model", None) else None),
+        python=getattr(args, "python", None),
     )
     result = debugger.reduce_project(work_dir, test_command)
 
@@ -393,6 +394,12 @@ Examples:
                          'if either is missing. Note the Phase 4b skip can '
                          'leave removable code in the output if the model '
                          'is miscalibrated.')
+    rp.add_argument('--python', default=None, metavar='PATH',
+                    help='Interpreter to trace coverage with. Must match '
+                         'the one your test command uses, or Phase 1 will '
+                         'measure a different environment than the one '
+                         'reductions are validated against. Defaults to '
+                         'the interpreter running autorepro-min.')
     rp.add_argument('--oracle-model', default=None, metavar='PATH',
                     help='Path to the pickled oracle model. Defaults to '
                          'the one shipped in autorepro_min/src/ml/.')

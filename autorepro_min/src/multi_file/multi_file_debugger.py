@@ -83,12 +83,14 @@ class MultiFileDebugger:
                  aggressive_inline: bool = False,
                  use_coverage_prune: bool = True,
                  use_learned_oracle: bool = False,
-                 oracle_model_path: Optional[Path] = None):
+                 oracle_model_path: Optional[Path] = None,
+                 python: Optional[str] = None):
         self.verbose = verbose
         self.timeout = timeout
         self.match_strategy = match_strategy
         self.use_coverage_prune = use_coverage_prune
-        self.analyzer = DependencyAnalyzer()
+        self.python = python
+        self.analyzer = DependencyAnalyzer(python=python)
         self.inliner = ImportInliner(aggressive=aggressive_inline)
         self.coverage_pruner = CoveragePruner()
 

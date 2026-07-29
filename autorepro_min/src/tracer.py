@@ -54,14 +54,27 @@ class ExecutionTracer:
     enabling execution-guided reduction (cold code removal first).
     """
 
-    def __init__(self, timeout: int = 60):
+    def __init__(self, timeout: int = 60, python: Optional[str] = None):
         """
         Initialize the tracer.
 
         Args:
             timeout: Maximum time in seconds to wait for execution
+            python: Interpreter to run coverage under. Must be the same
+                one the reproduction command uses, or the trace measures
+                a different environment than the reduction is validated
+                in. Defaults to the interpreter running this process.
+
+                This is not hypothetical: tracing flask under the ambient
+                Python (pytest 9.1.1) errored during collection and
+                collected 2 files, while the same command under the
+                benchmark venv (pytest 9.0.0) passed and collected 23.
+                Phase 1 then classified 51 of 82 files as unreachable,
+                Phase 2's batch delete broke the test, and the whole
+                reduction rolled back to zero.
         """
         self.timeout = timeout
+        self.python = python or sys.executable
 
     def trace_command(self, command: List[str], cwd: Optional[Path] = None,
                       env: Optional[Dict[str, str]] = None) -> ExecutionTrace:
@@ -89,7 +102,7 @@ class ExecutionTracer:
             # Run command with coverage
             try:
                 result = subprocess.run(
-                    [sys.executable, '-m', 'coverage', 'run', '--branch',
+                    [self.python, '-m', 'coverage', 'run', '--branch',
                      '--data-file', str(coverage_file),
                      '--source', '.'] + command,
                     cwd=cwd,

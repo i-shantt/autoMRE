@@ -66,8 +66,12 @@ class DependencyAnalyzer:
     """Discovers files, traces execution, and builds a dep graph."""
 
     def __init__(self, tracer: Optional[ExecutionTracer] = None,
-                 exclude_dirs: Optional[Set[str]] = None):
-        self.tracer = tracer or ExecutionTracer()
+                 exclude_dirs: Optional[Set[str]] = None,
+                 python: Optional[str] = None):
+        # The trace has to run under the same interpreter as the
+        # reproduction command; see ExecutionTracer for what goes wrong
+        # otherwise.
+        self.tracer = tracer or ExecutionTracer(python=python)
         # Common directories we should never treat as source.
         self.exclude_dirs = exclude_dirs or {
             "__pycache__", ".git", ".hg", ".svn", ".venv", "venv",
