@@ -3,169 +3,205 @@
 Automated multi-file bug reproduction minimization for Python projects,
 via coverage-guided empirical delta debugging.
 
-Given a project directory and a reproduction command (typically a
-failing pytest test), AutoRepro-Min iteratively removes files,
-imports, and definitions, validating after each candidate removal
-that the reproduction command still produces the same output. What
-remains is the smallest subset of the original codebase that still
-exhibits the bug.
+Given a project directory and a reproduction command, AutoRepro-Min
+iteratively removes files, definitions and statements, validating after
+each candidate removal that the command still produces the same
+behavior. What remains is a small subset of the original codebase that
+still exhibits the bug.
+
+## Results
+
+Six pytest tasks across `psf/requests v2.32.3` and `pallets/flask 3.0.3`
+(`evaluation/gistify_tasks.json`), on an M4 MacBook Air:
+
+| task | lines | reduction | files | queries |
+|------|------:|----------:|:-----:|--------:|
+| requests-super_len_partial   | 11209 → 1181 | 89.5% | 36 → 10 | 1464 |
+| requests-guess_json_utf      | 11209 → 1200 | 89.3% | 36 → 10 | 1504 |
+| requests-content_disposition | 11209 → 1193 | 89.4% | 36 → 10 | 1456 |
+| requests-cookie_utils        | 11209 → 1204 | 89.3% | 36 → 10 | 1509 |
+| flask-request_ctx_basic      | 17565 → 2485 | 85.9% | 82 → 13 | 2866 |
+| flask-blueprint_registration | 17565 → 1968 | 88.8% | 82 → 17 | 3372 |
+
+**88.5% aggregate line reduction, 6/6 execution fidelity.** Raw data in
+`evaluation/results_gistify_v5_sound.json`.
+
+Reduction is the expensive part: ~2000 validation queries per task at
+roughly 170 ms each. Around 99% of wall time is the subprocess running
+the target test; the reducer's own work is about 0.5 ms per query. The
+only lever that matters is asking fewer questions.
+
+## Why these numbers are trustworthy
+
+A minimizer is easy to fool, including by accident. Three earlier
+versions of this benchmark reported better numbers that were wrong, and
+each failure is worth stating because it shapes how the tool is now
+built.
+
+**The reduced code was never under test.** Both target repos use a
+`src/` layout, and the harness installed the *cache* checkout, so
+`import requests` resolved past the copy being reduced. Deleting the
+entire `src/requests` package still passed 13/13. Every "reduction" was
+of files nothing imported. The harness now installs the work copy and
+refuses to run if the package under test resolves outside it.
+
+**The oracle accepted a different bug.** `error_type` compares only the
+exception class, so a reduction that turned a str/list concatenation
+`TypeError` into a `NoneType` arithmetic `TypeError` was accepted. The
+default is now `output_match`, which compares full normalized output.
+Making that usable required normalizing traceback line numbers — every
+removal shifts them, so the same failure at a different offset read as
+different behavior and capped one example at 27% reduction.
+
+**The reducer gutted the test instead of the code.** For a *passing*
+test, "output still matches" has a degenerate solution: delete the
+assertions. pytest still prints `1 passed`, so the reducer was free to
+stub the test body to `pass`, stub every fixture to `pass`, and then
+delete the library nothing depended on any more. That produced a
+"99.6% reduction" whose surviving tree was two files of empty stubs.
+
+The last one is a category error rather than a bug in a heuristic: the
+test file is the *oracle*, the statement of what must remain true, not
+code to be reduced. Files named in the reproduction command — plus any
+`conftest.py` above them — are now protected, but only for test-runner
+commands. Under `python main.py` the script *is* the subject, and that
+case is self-protecting anyway, since the oracle compares the traceback
+including the line that raised.
+
+**The check that catches all three is a vacuity probe, not a size
+assertion.** Size cannot distinguish a good reduction from a destroyed
+one. `autorepro_min/tests/test_no_vacuous_reduction.py` sabotages the
+library on purpose and requires the test to notice; a reduction that
+survives its own dependency being broken was never exercising it.
+
+Verified end-to-end on `psf/requests`: reducing for `TestGuessJSONUTF`
+keeps `src/requests/utils.py` with its real BOM-detection body and the
+test with its parametrized assertions, and injecting a bogus `return`
+into `guess_json_utf` makes the reduced test fail.
 
 ## Pipeline
 
-The reducer runs four phases. Each one either eliminates candidates
-in bulk (fast) or one-at-a-time under validation (safe fallback).
+**Phase 1 — Analysis.** Run the reproduction command once under
+`coverage.py` to record which files and lines executed, parse `import`
+statements into a project-local dependency graph, and classify every
+file as `EXECUTED`, `IMPORTED_ONLY` or `UNREACHABLE`. The trace must run
+under the same interpreter as the reproduction command; tracing flask
+under a different pytest version collected 2 files instead of 23 and
+sent the whole run to zero.
 
-**Phase 1 — Analysis.** Run the reproduction command once with
-`coverage.py` to record which files and lines executed. Parse each
-file's `import` statements to build a project-local dependency
-graph. Classify every file as `EXECUTED`, `IMPORTED_ONLY`, or
-`UNREACHABLE`.
+**Phase 2 — File deletion.** Bulk-delete every `UNREACHABLE` file and
+validate, falling back to per-file deletion if the batch breaks the bug.
+Then probe each `IMPORTED_ONLY` file individually.
 
-**Phase 2 — File deletion.**
-- 2a: bulk-delete every `UNREACHABLE` file and validate. If the
-  batch broke the bug (dynamic import etc.), restore and fall back
-  to per-file validated deletion.
-- 2b: probe every `IMPORTED_ONLY` file individually; keep the
-  deletion if the bug still fires.
-
-**Phase 3 — Selective inlining.** Walk the surviving dependency
-graph leaves-first. For each file, try to inline its used top-level
-definitions into every importer. With `--aggressive-inline`, retry
-even for files that have top-level side effects and let empirical
-validation catch the failures.
+**Phase 3 — Selective inlining.** Walk the surviving graph leaves-first,
+inlining used definitions into importers. Abandoned after three
+consecutive rollbacks: inlining a module of an installed package cannot
+work — folding `src/flask/app.py` into `__init__.py` breaks every
+`from flask.app import X` — and re-learning that twenty times costs
+twenty queries.
 
 **Phase 4 — Intra-file reduction.**
-- 4a: coverage-based bulk prune (see below).
-- 4b: hierarchical delta debugging (HDD-E) on what remains.
+- 4a: coverage-based bulk prune — drop definitions with zero executed
+  lines in one query per file, rolling back if the bug breaks.
+- 4b: delta debugging over AST units. Each pass walks every candidate
+  once and accumulates the removals that stick, repeating until a pass
+  changes nothing. Unparseable candidates are rejected locally rather
+  than spending a subprocess on an edit no oracle could accept.
+- Then: collapse function bodies to `pass` where the body turns out not
+  to matter (deletion can never empty a body — Python needs one
+  statement — so a docstring would otherwise be pinned in place), strip
+  comments by ddmin-style halving, and collapse the blank lines that
+  byte-range removal leaves behind.
 
-## Coverage-based pruning (Phase 4a)
+**Phase 5 — Final file sweep.** Retry deleting every surviving file,
+repeating until a round finds nothing. Phase 2 asks this while
+everything still imports everything; Phase 4 is what removes the last
+import. Without a second look those modules stay as orphans — on
+requests that was ten files.
 
-Phase 1's per-line coverage tells us exactly which lines executed
-in the original run. After Phases 2 and 3, we re-run coverage
-against the current tree (inlining shifts line numbers and copies
-code into new files), then in each surviving file:
+## Withdrawn results
 
-- If a top-level definition has zero executed lines, drop it.
-- If a class is partially covered, descend into its methods and
-  drop the ones whose bodies have zero coverage.
-- Never touch statements inside a live function — control-flow
-  surgery is HDD-E's job.
+Two earlier experiments were benchmarked and reported. **Both
+measurements are withdrawn**: they were taken while the benchmark was
+reducing code that was never under test, so they describe nothing.
 
-One validation call per file replaces up to N per-unit queries
-that HDD-E would otherwise burn discovering the same dead code.
-When the removal breaks the bug (decorator side effects, dynamic
-dispatch, metaclass wiring — things static coverage can miss), the
-file is rolled back and HDD-E processes it normally.
+- **Open-source LLM prioritizer** (Qwen 2.5 Coder 0.5B/1.5B, branch
+  `ml-prioritizer`). Reported as producing byte-identical output at
+  7–12× overhead. That "convergence" was every ordering reaching the
+  same place because no removal affected the test.
+- **Learned removability oracle** (branch history on `master`, `ml/`).
+  Reported as cutting queries 55% with identical output, held out. Its
+  10,074 training rows were harvested from the broken pipeline and
+  describe a reducer that no longer exists.
 
-The pass is on by default. Disable per-run with
-`--no-coverage-prune` on `reduce-project` or the Gistify runner.
-
-## Gistify-style benchmark
-
-`evaluation/gistify_runner.py` runs the same evaluation shape as
-the Gistify paper (Lee et al., ICLR 2026, arXiv 2510.26790):
-clone a real repo, capture baseline output, reduce, verify
-execution fidelity. The current manifest is 6 pytest tests across
-`psf/requests v2.32.3` and `pallets/flask 3.0.3`.
-
-| Configuration              | Fidelity | Single-file | Avg queries | Avg time/task |
-|----------------------------|:--------:|:-----------:|:-----------:|:-------------:|
-| heuristic (Phase 4a off)   | 6/6      | 0/6         | 241         | 51.3s         |
-| heuristic + coverage prune | 6/6      | 0/6         | 244         | 52.0s         |
-| Gistify paper best         | 58.7%    | (their SC)  | —           | —             |
-
-**Read these numbers carefully.** The Gistify paper number is a
-directional comparison, not a formal head-to-head:
-
-- Their test list (25 tests) isn't publicly released, so ours is
-  a custom 6-test subset over the same repos. Ours are pure-Python,
-  hand-picked, and probably easier on average.
-- Their approach *generates* a mimicking single file with an LLM;
-  ours *deletes dead code* under empirical validation. Different
-  mechanism, same execution-fidelity metric.
-- We score 0/6 on their Self-Containment (single-file output)
-  metric because we can only collapse to one file when the reduced
-  project happens to fit in one.
-
-The head-to-head is honest only on Execution Fidelity itself — and
-even there, the sample sizes and test selection differ.
-
-## What we tried and dropped
-
-Two earlier iterations of the "prioritization" idea were built,
-benchmarked, and removed. Both stories are here because a portfolio
-project should show the discipline of rejecting things that didn't
-work, not just the ones that did.
-
-**Open-source LLM prioritizer (Qwen 2.5 Coder, 0.5B / 1.5B).**
-Idea: use a code LLM to rank HDD-E's removal candidates so the
-debugger tries the highest-probability-removable ones first. Result:
-byte-identical output to the pure heuristic on all 6 tasks, at 7–12×
-wall-clock overhead. The empirical validator converges on the same
-fixed point regardless of removal order; the LLM saved ~30% of
-validation queries but each query got expensive enough to more than
-wipe out the savings. Code removed on this branch. Prior branch:
-`ml-prioritizer`.
-
-**Coverage-based Phase 4a pruning (this branch).** Idea above.
-Result: correctness preserved (still 6/6 fidelity, byte-identical
-output), but slightly *worse* wall-clock (+~1s/task) and slightly
-more queries (+~4/task). Same convergence story: HDD-E was already
-going to reach the same minimum, and the pruner's failed attempts
-(fixture / decorator machinery that coverage can't see) each cost
-one wasted validation. Retained as an off-switch (`--no-coverage-
-prune`) rather than deleted because it's safe and could be a win
-on non-test-file codebases where import-time machinery is less
-prevalent.
+Both need re-running before any claim is made. The code is retained; the
+numbers are not.
 
 ## Install and run
 
 ```bash
 pip install -e .
 
-# Reduce a project against a specific failing test
+# Reduce a project against a failing test
 python -m autorepro_min.src.cli reduce-project ./my_project \
   -c "python3 -m pytest tests/test_bug.py::test_foo -x -q" \
-  --strategy output_match \
-  --aggressive-inline \
   -v
 
-# Rerun the Gistify benchmark (~5 min on M4)
-python evaluation/gistify_runner.py
+# Tests (~8s)
+python -m pytest autorepro_min/tests/
 
-# Ablation: with vs without Phase 4a
+# Benchmark. Provisions a pinned venv on first run; ~65 min for 6 tasks
 python evaluation/gistify_runner.py
-python evaluation/gistify_runner.py --no-coverage-prune
 ```
+
+The benchmark pins `pytest==9.0.0` in `.gistify_venv`. flask's conftest
+reads `_pytest.monkeypatch.notset`, a private sentinel removed in 9.1,
+so under a newer pytest every flask task dies during collection — and
+the harness would then faithfully preserve *the collection error*.
 
 ## Structure
 
 ```
 autorepro_min/src/
-  parser.py               tree-sitter AST + CodeUnit model
-  tracer.py               coverage.py wrapper
-  validator.py            behavior oracle (exact / output_match / error_type / error_message)
-  reducer.py              single-file HDD-E
+  parser.py                 tree-sitter AST + CodeUnit model
+  tracer.py                 coverage.py wrapper (interpreter-aware)
+  validator.py              behavior oracle + output normalization
+  reducer.py                delta debugging, stubbing, comment/blank passes
   multi_file/
-    dependency_analyzer.py  Phase 1: coverage + import graph + classification
-    multi_file_validator.py whole-project oracle
-    import_inliner.py       Phase 3: inline defs into importers
-    coverage_pruner.py      Phase 4a: coverage-based bulk prune
-    multi_file_debugger.py  Phase 1-4 orchestrator
-  cli.py                  reduce / reduce-project / validate / trace commands
+    dependency_analyzer.py    Phase 1
+    multi_file_validator.py   whole-project oracle
+    import_inliner.py         Phase 3
+    coverage_pruner.py        Phase 4a
+    multi_file_debugger.py    orchestrator + oracle-file protection
+  ml/                       learned removability oracle (optional extra)
+  tests/                    soundness, vacuity, and unit tests
 evaluation/
-  gistify_runner.py       Gistify-style benchmark harness
-  gistify_tasks.json      6-task manifest
-  results_gistify_*.json  benchmark results per configuration
+  gistify_runner.py         benchmark harness
+  gistify_tasks.json        6-task manifest
+  results_gistify_*.json    results per configuration
 ```
+
+## Comparison to Gistify
+
+`evaluation/gistify_runner.py` borrows its evaluation shape from Gistify
+(Lee et al., ICLR 2026, arXiv 2510.26790) — clone a real repo, capture
+baseline output, reduce, verify execution fidelity — because it needed a
+yardstick, not because the tasks are the same.
+
+It is not a head-to-head. Their 25-test list isn't public, so this is a
+custom 6-test subset. More importantly the mechanisms differ: Gistify
+asks an LLM to *generate* a single mimicking file, which is a much
+harder problem than deleting dead code under empirical validation. This
+tool also scores 0/6 on their Self-Containment metric, and no attempt is
+made to chase it.
 
 ## References
 
 - Zeller & Hildebrandt (2002) — `ddmin`, the algorithm every delta
   debugger descends from.
-- Misherghi & Su (2006) — Hierarchical Delta Debugging: structure-
-  aware reduction (what HDD-E extends).
-- Lee et al. (ICLR 2026) — Gistify, the benchmark we compare against.
+- Misherghi & Su (2006) — Hierarchical Delta Debugging: structure-aware
+  reduction.
+- Lee et al. (ICLR 2026) — Gistify, source of the evaluation shape.
 
 ## License
 
