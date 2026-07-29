@@ -187,6 +187,82 @@ def _install_repo(repo_dir: Path, python: str,
     return True
 
 
+def _install_work_copy(work_dir: Path, python: str) -> bool:
+    """Repoint the environment at the copy we are about to reduce.
+
+    _install_repo installs the *cache* checkout so dependencies resolve.
+    That alone is what made the benchmark meaningless: both target repos
+    use a src/ layout, so `import requests` inside the work copy fell
+    through to the cache via the editable install, and the reducer's
+    deletions never reached the code under test. Deleting the entire
+    src/requests package from a work copy still passed 13/13.
+
+    Installing the work copy (--no-deps, since the cache install already
+    pulled dependencies in) makes the copy authoritative.
+    """
+    proc = subprocess.run(
+        [python, "-m", "pip", "install", "--quiet", "-e", str(work_dir),
+         "--no-deps"],
+        capture_output=True, text=True)
+    if proc.returncode != 0:
+        print(f"  work-copy install failed: {proc.stderr[-500:]}",
+              file=sys.stderr)
+        return False
+    return True
+
+
+def _top_level_packages(work_dir: Path) -> List[str]:
+    """Importable package names shipped by the repo under test."""
+    roots = [work_dir, work_dir / "src"]
+    names: List[str] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for child in sorted(root.iterdir()):
+            if (child.is_dir() and (child / "__init__.py").exists()
+                    and not child.name.startswith((".", "_"))
+                    and child.name not in ("tests", "test", "docs",
+                                           "examples")):
+                names.append(child.name)
+    return names
+
+
+def _imports_resolve_to_work_copy(work_dir: Path,
+                                  python: str) -> Optional[str]:
+    """Reason the work copy is not the code under test, or None if fine.
+
+    Cheap standing guard against the shadowing bug returning. If the
+    package the test imports lives somewhere other than the directory we
+    are mutating, every reduction is a no-op and execution fidelity is
+    meaningless.
+    """
+    packages = _top_level_packages(work_dir)
+    if not packages:
+        return None  # nothing importable to check; fidelity still applies
+
+    resolved = []
+    for pkg in packages:
+        proc = subprocess.run(
+            [python, "-c",
+             f"import {pkg}, os; print(os.path.realpath({pkg}.__file__))"],
+            cwd=work_dir, capture_output=True, text=True)
+        if proc.returncode != 0:
+            continue
+        resolved.append((pkg, proc.stdout.strip()))
+
+    if not resolved:
+        return None
+
+    target = str(work_dir.resolve())
+    outside = [(p, loc) for p, loc in resolved
+               if not loc.startswith(target)]
+    if len(outside) == len(resolved):
+        pkg, loc = outside[0]
+        return (f"`import {pkg}` resolves to {loc}, outside the work copy "
+                f"— reductions would not affect the test")
+    return None
+
+
 # ------------------------------------------------------------ eval
 
 def _capture_baseline(work_dir: Path, cmd: List[str],
@@ -293,6 +369,28 @@ def run_task(task: GistifyTask, timeout: int = 120,
                         ignore=shutil.ignore_patterns(
                             ".git", "*.egg-info", "__pycache__",
                             ".pytest_cache", "build", "dist"))
+
+        # Make the copy we are about to mutate the code actually imported.
+        print(f"  → installing work copy...", flush=True)
+        if not _install_work_copy(work_dir, python):
+            return GistifyResult(
+                task_id=task.task_id, execution_fidelity=0,
+                original_files=0, final_files=0,
+                original_lines=0, final_lines=0,
+                single_file_output=False,
+                total_queries=0, time_seconds=0.0,
+                error="work-copy install failed")
+
+        shadowed = _imports_resolve_to_work_copy(work_dir, python)
+        if shadowed and not allow_unhealthy_baseline:
+            print(f"  → SKIP: {shadowed}", flush=True)
+            return GistifyResult(
+                task_id=task.task_id, execution_fidelity=0,
+                original_files=0, final_files=0,
+                original_lines=0, final_lines=0,
+                single_file_output=False,
+                total_queries=0, time_seconds=0.0,
+                error=f"work copy not under test: {shadowed}")
 
         print(f"  → capturing baseline output...", flush=True)
         baseline_out, baseline_rc = _capture_baseline(
