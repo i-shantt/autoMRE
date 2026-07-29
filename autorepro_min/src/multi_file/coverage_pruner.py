@@ -37,7 +37,7 @@ from __future__ import annotations
 import sys as _sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Set
+from typing import Callable, List, Optional, Set
 
 from tree_sitter import Node
 
@@ -97,13 +97,23 @@ class CoveragePruner:
         self.parser = parser or PythonParser()
 
     def prune_source(self, source: str,
-                     executed_lines: Set[int]) -> PruneResult:
+                     executed_lines: Set[int],
+                     accept: Optional[Callable[[Node], bool]] = None
+                     ) -> PruneResult:
         """Strip every uncovered unit (at any level) from `source`.
 
         Args:
             source: File contents.
             executed_lines: 1-indexed line numbers that ran under
                 coverage. If empty, no pruning happens.
+            accept: Optional second opinion on each candidate. Called
+                with the node the pruner wants to take; returning False
+                keeps it. Used by the learned oracle to hold back
+                candidates that coverage calls dead but the model
+                expects to be load-bearing — the fixture and decorator
+                cases behind the pruner's rollbacks. A rejected node is
+                left whole rather than descended into, since the reason
+                to reject it is that removing that construct is risky.
         """
         original_line_count = len(source.splitlines())
 
@@ -112,7 +122,8 @@ class CoveragePruner:
                                original_line_count)
 
         tree = self.parser.parse_source(source)
-        to_remove = self._find_prunable(tree.root_node, executed_lines)
+        to_remove = self._find_prunable(tree.root_node, executed_lines,
+                                        accept)
 
         if not to_remove:
             return PruneResult(source, [], original_line_count,
@@ -143,7 +154,9 @@ class CoveragePruner:
     # -------------------------------------------------------- internals
 
     def _find_prunable(self, node: Node,
-                       executed_lines: Set[int]) -> List[RemovedRange]:
+                       executed_lines: Set[int],
+                       accept: Optional[Callable[[Node], bool]] = None
+                       ) -> List[RemovedRange]:
         """Recursive walk yielding non-overlapping removable ranges.
 
         Rules:
@@ -166,15 +179,20 @@ class CoveragePruner:
                             else self._touches(node, executed_lines))
             if body_touched:
                 return []
+            if accept is not None and not accept(node):
+                return []
             return [self._to_range(node)]
 
         if (node_type in self.parser.REMOVABLE_TYPES
                 and not self._touches(node, executed_lines)):
+            if accept is not None and not accept(node):
+                return []
             return [self._to_range(node)]
 
         collected: List[RemovedRange] = []
         for child in node.children:
-            collected.extend(self._find_prunable(child, executed_lines))
+            collected.extend(
+                self._find_prunable(child, executed_lines, accept))
         return collected
 
     @staticmethod

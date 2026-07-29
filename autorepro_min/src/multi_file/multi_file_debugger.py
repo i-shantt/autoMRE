@@ -55,6 +55,10 @@ class MultiFileReductionResult:
     # path -> (original_lines, final_lines)
     total_queries: int = 0
     time_seconds: float = 0.0
+    # Oracle bookkeeping — zero when it isn't in use.
+    oracle_enabled: bool = False
+    oracle_skipped_attempts: int = 0   # Phase 4b removals never tried
+    oracle_held_back_files: int = 0    # Phase 4a prunes it emptied out
 
     @property
     def file_reduction_rate(self) -> float:
@@ -77,7 +81,9 @@ class MultiFileDebugger:
     def __init__(self, verbose: bool = False, timeout: int = 60,
                  match_strategy: str = "error_type",
                  aggressive_inline: bool = False,
-                 use_coverage_prune: bool = True):
+                 use_coverage_prune: bool = True,
+                 use_learned_oracle: bool = False,
+                 oracle_model_path: Optional[Path] = None):
         self.verbose = verbose
         self.timeout = timeout
         self.match_strategy = match_strategy
@@ -85,6 +91,26 @@ class MultiFileDebugger:
         self.analyzer = DependencyAnalyzer()
         self.inliner = ImportInliner(aggressive=aggressive_inline)
         self.coverage_pruner = CoveragePruner()
+
+        # Optional and best-effort: a missing model, a missing sklearn,
+        # or a stale feature layout all degrade to the plain heuristic
+        # rather than failing a reduction.
+        self.oracle = None
+        if use_learned_oracle:
+            self.oracle = self._load_oracle(oracle_model_path)
+            if self.oracle is None:
+                self._log("  learned oracle requested but unavailable — "
+                          "continuing with the heuristic")
+
+    @staticmethod
+    def _load_oracle(model_path: Optional[Path]):
+        try:
+            from ml.oracle import (DEFAULT_MODEL_PATH,
+                                   LearnedRemovabilityOracle)
+        except ImportError:
+            return None
+        return LearnedRemovabilityOracle.load_if_available(
+            model_path or DEFAULT_MODEL_PATH)
 
     # ---------------------------------------------------------- public
 
@@ -225,6 +251,8 @@ class MultiFileDebugger:
         # ------------- Phase 4 — per-file HDD-E under project validation
         self._log("Phase 4: intra-file reduction...")
         per_file_reduction: Dict[Path, tuple] = {}
+        oracle_skipped_attempts = 0
+        oracle_held_back_files = 0
         final_survivors = [f for f in analysis.all_files if f.exists()]
         # Prioritize larger files first so big wins land early.
         final_survivors.sort(key=lambda p: -self._line_count(p))
@@ -257,7 +285,22 @@ class MultiFileDebugger:
             if self.use_coverage_prune:
                 executed = fresh_executed.get(f, set())
                 prune = self.coverage_pruner.prune_source(
-                    original_source, executed)
+                    original_source, executed,
+                    accept=self._oracle_accept(original_source, executed, f))
+
+                # Distinguish "coverage found nothing" from "the oracle
+                # vetoed everything coverage found" — only the second is
+                # the oracle changing the outcome.
+                if self.oracle is not None and not prune.any_removed:
+                    unfiltered = self.coverage_pruner.prune_source(
+                        original_source, executed)
+                    if unfiltered.any_removed:
+                        oracle_held_back_files += 1
+                        self._log(
+                            f"  {f.relative_to(project_dir)}: oracle held "
+                            f"back all {unfiltered.n_removed} coverage "
+                            f"candidates — skipping bulk prune")
+
                 if prune.any_removed:
                     f.write_text(prune.pruned_source)
                     queries += 1
@@ -286,7 +329,8 @@ class MultiFileDebugger:
             current_source = f.read_text()
             per_file_validator = ProjectFileValidator(validator, f)
             reducer = HybridDeltaDebugger(validator=per_file_validator,
-                                          verbose=self.verbose)
+                                          verbose=self.verbose,
+                                          oracle=self.oracle)
             try:
                 result = reducer.reduce(source_code=current_source,
                                         test_command=None,
@@ -299,6 +343,7 @@ class MultiFileDebugger:
                 continue
 
             queries += result.stats.queries
+            oracle_skipped_attempts += result.stats.oracle_skipped
             f.write_text(result.minimized_code)
             final_lines = len(result.minimized_code.splitlines())
             per_file_reduction[f] = (original_lines, final_lines)
@@ -321,9 +366,48 @@ class MultiFileDebugger:
             per_file_reduction=per_file_reduction,
             total_queries=queries,
             time_seconds=time.time() - start,
+            oracle_enabled=self.oracle is not None,
+            oracle_skipped_attempts=oracle_skipped_attempts,
+            oracle_held_back_files=oracle_held_back_files,
         )
 
     # ---------------------------------------------------------- utils
+
+    def _oracle_accept(self, source: str, executed: Set[int],
+                       file_path: Path):
+        """Second opinion for Phase 4a candidates, or None if no oracle.
+
+        The pruner bets a whole file's uncovered units on a single query.
+        When that bet loses, the query is wasted and HDD-E has to
+        rediscover everything one unit at a time. The oracle holds back
+        candidates it scores below the safe threshold, so the bet is
+        placed only on units both signals agree are dead.
+
+        Predictions are made one node at a time here rather than batched:
+        the pruner discovers candidates during its walk, and the walk's
+        shape depends on the answers. At ~21us per call against a
+        validation query in the hundreds of milliseconds, that is a
+        trade worth making.
+        """
+        if self.oracle is None:
+            return None
+
+        try:
+            from ml.features import extract_features
+            from ml.oracle import PHASE_4A_SAFE_THRESHOLD
+        except ImportError:
+            return None
+
+        def accept(node) -> bool:
+            try:
+                feats = extract_features(node, source, executed, file_path)
+                return self.oracle.predict(feats) >= PHASE_4A_SAFE_THRESHOLD
+            except Exception:
+                # Scoring failed for this node — fall back to trusting
+                # coverage, which is the pre-oracle behavior.
+                return True
+
+        return accept
 
     def _line_count(self, path: Path) -> int:
         try:

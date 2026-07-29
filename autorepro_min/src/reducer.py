@@ -59,6 +59,7 @@ class ReductionStats:
     time_seconds: float  # Total time
     successful_removals: int  # Number of successful unit removals
     failed_removals: int  # Number of failed unit removals
+    oracle_skipped: int = 0  # Attempts the learned oracle declined to make
 
     @property
     def reduction_rate(self) -> float:
@@ -93,7 +94,9 @@ class HybridDeltaDebugger:
     def __init__(self, parser: Optional[PythonParser] = None,
                  tracer: Optional[ExecutionTracer] = None,
                  validator: Optional[Validator] = None,
-                 verbose: bool = False):
+                 verbose: bool = False,
+                 oracle: Optional[object] = None,
+                 oracle_skip_threshold: float = 0.1):
         """
         Initialize the reducer.
 
@@ -102,11 +105,20 @@ class HybridDeltaDebugger:
             tracer: ExecutionTracer instance
             validator: Validator instance
             verbose: Print progress information
+            oracle: Optional LearnedRemovabilityOracle. When present,
+                units it scores below `oracle_skip_threshold` are never
+                attempted. This trades output quality for queries: a
+                miscalibrated model that calls a removable unit hopeless
+                leaves that code in the result permanently, because
+                nothing revisits a skipped unit.
+            oracle_skip_threshold: p(safe) below which a unit is skipped.
         """
         self.parser = parser or PythonParser()
         self.tracer = tracer or ExecutionTracer()
         self.validator = validator or Validator()
         self.verbose = verbose
+        self.oracle = oracle
+        self.oracle_skip_threshold = oracle_skip_threshold
         # Set per-reduce(); see reduce() for why these exist.
         self._file_path: Optional[Path] = None
         self._executed: Optional[Set[int]] = None
@@ -218,8 +230,17 @@ class HybridDeltaDebugger:
             # Prioritize units (execution-guided, then size)
             prioritized = self._prioritize_units(flat_units)
 
+            # Ask the oracle about the whole batch at once — one matrix
+            # multiply beats one call per unit, and the answer is only
+            # useful if it costs far less than the query it replaces.
+            hopeless = self._oracle_verdicts(prioritized, current_code,
+                                             orig_trace)
+
             # Try removing each unit
             for unit in prioritized:
+                if id(unit) in hopeless:
+                    stats.oracle_skipped += 1
+                    continue
                 # Attempt removal
                 candidate = self._remove_units(current_code, [unit])
 
@@ -309,6 +330,39 @@ class HybridDeltaDebugger:
     def _prioritize_units(self, units: List[CodeUnit]) -> List[CodeUnit]:
         """Prioritize units for reduction (cold first, then by size)."""
         return self.parser.prioritize_units(units)
+
+    def _oracle_verdicts(self, units: List[CodeUnit], source: str,
+                         trace: ExecutionTrace) -> Set[int]:
+        """ids of units the oracle says are not worth attempting.
+
+        Identity rather than value: two textually identical statements
+        are equal as dataclasses but are different removal candidates.
+
+        Any failure here yields an empty set, so a broken or missing
+        model costs nothing but the plain heuristic path.
+        """
+        if self.oracle is None:
+            return set()
+
+        scored = [u for u in units if getattr(u, "ts_node", None) is not None]
+        if not scored:
+            return set()
+
+        try:
+            from ml.features import extract_features
+        except ImportError:
+            return set()
+
+        try:
+            executed = self._current_executed(trace)
+            feats = [extract_features(u.ts_node, source, executed,
+                                      self._file_path) for u in scored]
+            probs = self.oracle.predict_batch(feats)
+        except Exception:
+            return set()
+
+        return {id(u) for u, p in zip(scored, probs)
+                if p < self.oracle_skip_threshold}
 
     def _remove_units(self, source_code: str, units: List[CodeUnit]) -> str:
         """Remove specified units from source code."""
