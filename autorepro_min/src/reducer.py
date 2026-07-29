@@ -29,6 +29,26 @@ from tracer import ExecutionTracer, ExecutionTrace
 from validator import Validator
 
 
+def _make_training_logger():
+    """Build a training logger if the environment asks for one.
+
+    Import is deferred and failures are swallowed on purpose: the ml/
+    package is an optional extra, and a reducer run must never fail
+    because data capture is unavailable.
+    """
+    try:
+        from ml.training_log import TrainingLogger
+    except ImportError:
+        try:
+            from .ml.training_log import TrainingLogger  # type: ignore
+        except (ImportError, ValueError):
+            return None
+    try:
+        return TrainingLogger.from_env()
+    except Exception:
+        return None
+
+
 @dataclass
 class ReductionStats:
     """Statistics for the reduction process."""
@@ -90,6 +110,10 @@ class HybridDeltaDebugger:
         # Set per-reduce(); see reduce() for why these exist.
         self._file_path: Optional[Path] = None
         self._executed: Optional[Set[int]] = None
+        # Only non-None when AUTOREPRO_TRAINING_LOG is set, so a normal
+        # reduction pays nothing and the core reducer keeps working even
+        # if the optional ml/ package is absent.
+        self._training_logger = _make_training_logger()
 
     def reduce(self, source_code: str,
                test_command: Optional[List[str]] = None,
@@ -202,6 +226,17 @@ class HybridDeltaDebugger:
                 # Validate
                 is_valid = self._validate(candidate, test_command, cwd)
                 stats.queries += 1
+
+                # Capture the attempt while current_code and the coverage
+                # set still describe the state the unit was measured in —
+                # a successful removal rewrites both below.
+                if self._training_logger is not None:
+                    self._training_logger.log_attempt(
+                        unit=unit,
+                        source=current_code,
+                        executed_lines=self._current_executed(orig_trace),
+                        file_path=self._file_path,
+                        was_safely_removable=is_valid)
 
                 if is_valid:
                     # Successful removal. Shift the coverage set into the
