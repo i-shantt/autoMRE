@@ -62,6 +62,50 @@ def _is_parseable(source: str) -> bool:
         return False
 
 
+def _walk(node):
+    yield node
+    for child in node.children:
+        yield from _walk(child)
+
+
+def _block_child(node):
+    for child in node.children:
+        if child.type == "block":
+            return child
+    return None
+
+
+def _body_stub_edits(tree, source: str) -> List[Tuple[Tuple[int, int], str]]:
+    """Block spans that could collapse to `pass`, largest first.
+
+    Deletion can never empty a function body: Python requires at least
+    one statement, so whatever survives last — very often a multi-line
+    docstring — is pinned in place with no way to remove it. Replacing
+    the block with `pass` says "nothing in this body matters", which
+    deletion has no vocabulary for. C-Reduce and Chisel both lean on
+    this class of rewrite for the same reason.
+    """
+    edits: List[Tuple[Tuple[int, int], str]] = []
+    for node in _walk(tree.root_node):
+        if node.type not in ("function_definition", "class_definition"):
+            continue
+        block = _block_child(node)
+        if block is None:
+            continue
+        if source[block.start_byte:block.end_byte].strip() == "pass":
+            continue
+        indent = " " * (node.start_point[1] + 4)
+        edits.append(((block.start_byte, block.end_byte),
+                      "\n" + indent + "pass"))
+    edits.sort(key=lambda e: -(e[0][1] - e[0][0]))
+    return edits
+
+
+def _comment_spans(tree) -> List[Tuple[int, int]]:
+    return [(n.start_byte, n.end_byte) for n in _walk(tree.root_node)
+            if n.type == "comment"]
+
+
 def _collapse_blank_lines(source: str) -> str:
     """Drop lines left empty by byte-range removals.
 
@@ -335,6 +379,24 @@ class HybridDeltaDebugger:
                     current_code, removed_spans, self._executed)
             current_code = _apply_removals(current_code, removed_spans)
 
+        # Deletion alone has now converged. What it cannot express is
+        # "this body is irrelevant" — a function must keep at least one
+        # statement — so collapse bodies to `pass` and then let deletion
+        # run again over the smaller tree.
+        before_stub = current_code
+        current_code = self._stub_bodies(current_code, test_command, cwd,
+                                         stats)
+        if current_code != before_stub:
+            for _ in range(max_iterations):
+                shrunk = self._deletion_pass(current_code, orig_trace,
+                                             test_command, cwd, stats)
+                if shrunk is None:
+                    break
+                current_code = shrunk
+
+        current_code = self._strip_comments(current_code, test_command,
+                                            cwd, stats)
+
         # Deleted statements leave their trailing newline behind, so a
         # reduced file is mostly blank lines — on real inputs ~80% of
         # what survives. That inflates the reported size and makes the
@@ -391,6 +453,93 @@ class HybridDeltaDebugger:
         """Get flattened list of removable units."""
         units = self._get_units(source_code, trace)
         return self.parser.get_flat_units(units)
+
+    def _deletion_pass(self, source: str, trace: ExecutionTrace,
+                       test_command, cwd, stats) -> Optional[str]:
+        """One accumulating deletion pass. None if nothing was removed."""
+        candidates = self._candidates(source, trace)
+        if not candidates:
+            return None
+        removed: List[Tuple[int, int]] = []
+        for unit in candidates:
+            span = (unit.start_byte, unit.end_byte)
+            if _overlaps(span, removed):
+                continue
+            cand = _apply_removals(source, removed + [span])
+            if not _is_parseable(cand):
+                stats.syntax_rejected += 1
+                continue
+            stats.queries += 1
+            if self._validate(cand, test_command, cwd):
+                removed.append(span)
+                stats.successful_removals += 1
+            else:
+                stats.failed_removals += 1
+        if not removed:
+            return None
+        if self._executed is not None:
+            self._executed = remap_executed_lines(source, removed,
+                                                  self._executed)
+        return _apply_removals(source, removed)
+
+    def _stub_bodies(self, source: str, test_command, cwd,
+                     stats) -> str:
+        """Collapse function and class bodies to `pass` where possible."""
+        current = source
+        while True:
+            tree = self.parser.parse_source(current)
+            edits = _body_stub_edits(tree, current)
+            applied = False
+            for (start, end), replacement in edits:
+                cand = current[:start] + replacement + current[end:]
+                if not _is_parseable(cand):
+                    stats.syntax_rejected += 1
+                    continue
+                stats.queries += 1
+                if self._validate(cand, test_command, cwd):
+                    current = cand
+                    applied = True
+                    if self.verbose:
+                        print("  Stubbed a body to pass")
+                    break
+            if not applied:
+                return current
+
+    def _strip_comments(self, source: str, test_command, cwd,
+                        stats) -> str:
+        """Drop comments, all at once if possible.
+
+        Comments are never semantically required, but a directive such as
+        `# type: ignore` or `# noqa` can matter to a tool in the loop, so
+        the batch removal is validated and falls back to one-at-a-time
+        rather than assumed safe.
+        """
+        tree = self.parser.parse_source(source)
+        spans = _comment_spans(tree)
+        if not spans:
+            return source
+
+        batch = _apply_removals(source, spans)
+        if _is_parseable(batch):
+            stats.queries += 1
+            if self._validate(batch, test_command, cwd):
+                return batch
+
+        current = source
+        while True:
+            tree = self.parser.parse_source(current)
+            progressed = False
+            for span in _comment_spans(tree):
+                cand = _apply_removals(current, [span])
+                if not _is_parseable(cand):
+                    continue
+                stats.queries += 1
+                if self._validate(cand, test_command, cwd):
+                    current = cand
+                    progressed = True
+                    break
+            if not progressed:
+                return current
 
     def _candidates(self, source_code: str,
                     trace: ExecutionTrace) -> List[CodeUnit]:

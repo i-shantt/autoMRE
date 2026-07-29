@@ -375,10 +375,15 @@ Examples:
                     help='Overwrite --output if it already exists')
     rp.add_argument('-t', '--timeout', type=int, default=60,
                     help='Per-run reproduction timeout in seconds')
-    rp.add_argument('-s', '--strategy', default='error_type',
+    rp.add_argument('-s', '--strategy', default='output_match',
                     choices=['exact', 'output_match',
                              'error_type', 'error_message'],
-                    help='Behavior-matching strategy')
+                    help='Behavior-matching strategy. Default output_match '
+                         'compares the full normalized output. error_type '
+                         'only compares the exception class, which lets a '
+                         'reduction swap in a DIFFERENT bug of the same type '
+                         'and still be accepted — use it only when you '
+                         'genuinely want that latitude.')
     rp.add_argument('--aggressive-inline', action='store_true',
                     help='Inline modules even when they have top-level '
                          'side effects; roll back if the inline breaks '

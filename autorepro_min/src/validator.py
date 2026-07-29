@@ -324,6 +324,18 @@ class Validator:
             line = re.sub(r"/var/folders/[^\s\"']*", "/tmp/PATH", line)
             # Traceback "File \"/long/abs/path/foo.py\"" -> "File \"foo.py\""
             line = re.sub(r'File\s+"([^"]*/)?([^/"]+)"', r'File "\2"', line)
+            # Traceback frame line numbers. Reduction shifts every line
+            # after each removal, so keeping them here makes output_match
+            # reject essentially every candidate: the same failure at a
+            # different offset reads as different behavior. On the dep-chain
+            # example that capped reduction at 27% while error_message
+            # reached 78%. The frame's source text is kept, so this loosens
+            # position without loosening which statement actually raised.
+            line = re.sub(r'\bline\s+\d+\b', 'line N', line)
+            # Object identities: "<Foo object at 0x10a3b2f50>". These vary
+            # run to run and would otherwise make any output containing a
+            # repr non-reproducible under output_match.
+            line = re.sub(r'0x[0-9a-fA-F]{4,}', '0xADDR', line)
             out.append(line)
         return "\n".join(out)
 
