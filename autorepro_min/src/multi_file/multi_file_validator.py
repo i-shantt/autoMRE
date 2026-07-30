@@ -30,6 +30,7 @@ from validator import (
     OriginalBehavior,
     ValidationResult,
     Validator,
+    oracle_env,
 )
 
 
@@ -149,6 +150,7 @@ class MultiFileValidator:
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
+                env=oracle_env(),
             )
             return ProjectRunResult(
                 output=(proc.stdout or "") + (proc.stderr or ""),

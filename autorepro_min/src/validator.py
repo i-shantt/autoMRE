@@ -12,6 +12,7 @@ Based on:
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -19,6 +20,34 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set
+
+
+def oracle_env(base: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """Environment for any subprocess that must observe the tree as written.
+
+    Disables bytecode caching, and it is not an optimization detail — it is
+    required for the oracle to be sound.
+
+    CPython decides a cached .pyc is fresh by comparing the source's
+    (mtime, size), and the mtime it stores has one-second resolution. The
+    reducer rewrites the same file several times per second, so any two
+    candidates for one file that happen to share a byte length — trivially
+    common, e.g. swapping one statement for another of equal width — are
+    indistinguishable to that check. Python then imports the *previous*
+    candidate's bytecode and the validator reports on code that is not on
+    disk. That both corrupts the verdict and makes runs unreproducible,
+    since whether two writes land in the same clock tick is pure timing.
+
+    Writing no bytecode costs a recompile per import and removes the class
+    of bug entirely. Note this only suppresses *writing*: it is safe here
+    because the tree under reduction starts with no __pycache__, so none is
+    ever read either.
+    """
+    env = os.environ.copy()
+    if base:
+        env.update(base)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    return env
 
 
 @dataclass
@@ -171,7 +200,8 @@ class Validator:
                 cwd=cwd,
                 capture_output=True,
                 text=True,
-                timeout=self.timeout
+                timeout=self.timeout,
+                env=oracle_env(),
             )
 
             output = result.stdout + result.stderr

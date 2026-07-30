@@ -22,6 +22,12 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import coverage
 
+_SRC_DIR = Path(__file__).resolve().parent
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
+from validator import oracle_env  # noqa: E402
+
 
 @dataclass
 class ExecutionTrace:
@@ -93,11 +99,11 @@ class ExecutionTracer:
         with tempfile.TemporaryDirectory() as tmpdir:
             coverage_file = Path(tmpdir) / ".coverage"
 
-            # Set up coverage environment
-            trace_env = os.environ.copy()
+            # Set up coverage environment. Routed through oracle_env so the
+            # trace sees the same code the validator will — see its docstring
+            # for why stale bytecode has to be ruled out.
+            trace_env = oracle_env(env)
             trace_env['COVERAGE_FILE'] = str(coverage_file)
-            if env:
-                trace_env.update(env)
 
             # Run command with coverage
             try:
