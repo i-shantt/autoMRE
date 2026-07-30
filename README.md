@@ -16,36 +16,52 @@ Six pytest tasks across `psf/requests v2.32.3` and `pallets/flask 3.0.3`
 
 | task | lines | reduction | files | queries |
 |------|------:|----------:|:-----:|--------:|
-| requests-super_len_partial   | 11209 → 1180 | 89.5% | 36 → 10 | 1415 |
-| requests-guess_json_utf      | 11209 → 1199 | 89.3% | 36 → 10 | 1476 |
-| requests-content_disposition | 11209 → 1193 | 89.4% | 36 → 10 | 1361 |
-| requests-cookie_utils        | 11209 → 1204 | 89.3% | 36 → 10 | 1427 |
-| flask-request_ctx_basic      | 17565 → 2483 | 85.9% | 82 → 13 | 2688 |
-| flask-blueprint_registration | 17565 → 1968 | 88.8% | 82 → 17 | 3309 |
+| requests-super_len_partial   | 11209 → 1180 | 89.5% | 36 → 10 | 1302 |
+| requests-guess_json_utf      | 11209 → 1199 | 89.3% | 36 → 10 | 1339 |
+| requests-content_disposition | 11209 → 1193 | 89.4% | 36 → 10 | 1309 |
+| requests-cookie_utils        | 11209 → 1204 | 89.3% | 36 → 10 | 1340 |
+| flask-request_ctx_basic      | 17565 → 2482 | 85.9% | 82 → 13 | 2634 |
+| flask-blueprint_registration | 17565 → 1967 | 88.8% | 82 → 17 | 3202 |
 
 **88.5% aggregate line reduction, 6/6 execution fidelity.** Raw data in
-`evaluation/results_gistify_heuristic_bounded.json`.
+`evaluation/results_gistify_postbytecode.json`.
+
+Runs are reproducible: repeated runs of a task are bit-identical, in
+output and in query count, with no pinned hash seed. That is a recent
+property rather than an assumed one — see the fourth entry below.
 
 That headline number undersells the tool, because 79% of what survives
 is the test file, which is deliberately never touched — it is the
 statement of what must remain true. Measured over the code actually
 eligible for removal, reduction is **97.4%**: `psf/requests` goes from
 10,193 reducible lines to 164–188, and `flask-request_ctx_basic` from
-15,515 to 433.
+15,515 to 432.
 
-Reduction is the expensive part: ~1950 validation queries per task at
-roughly 170 ms each, about 55 minutes for all six. Around 99% of wall
-time is the subprocess running the target test; the reducer's own work
-is about 0.5 ms per query. The only lever that matters is asking fewer
-questions — and it is a lever on runtime alone, never on output, so it
-is worth pulling only when it costs no minimality.
+Reduction is the expensive part: ~1850 validation queries per task,
+about 53 minutes for all six. Where that time goes depends on the repo,
+and not in the way this section used to claim. Instrumenting the
+validator to separate subprocess time from the reducer's own:
+
+| | requests-guess_json_utf | flask-request_ctx_basic |
+|---|---:|---:|
+| reduction wall | 215.9 s | 1127.8 s |
+| in the subprocess | 212.0 s (**98.2%**) | 401.3 s (**35.6%**) |
+| mean per subprocess | 160.7 ms | 154.0 ms |
+| reducer's own work | 2.9 ms/query | 275.8 ms/query |
+
+A single query costs about the same on both repos — the reproduction
+command does not care how big the tree around it is. What changes by
+two orders of magnitude is the reducer's own per-query work, and on
+flask that is *two thirds of the run*. Asking fewer questions is
+therefore the only lever that matters on requests and a minor one on
+flask, where the reducer is its own bottleneck. That is a profiling
+target, not a query-count target, and it is currently unprofiled.
 
 ## Why these numbers are trustworthy
 
-A minimizer is easy to fool, including by accident. Three earlier
-versions of this benchmark reported better numbers that were wrong, and
-each failure is worth stating because it shapes how the tool is now
-built.
+A minimizer is easy to fool, including by accident. Four earlier
+versions of this benchmark reported numbers that were wrong, and each
+failure is worth stating because it shapes how the tool is now built.
 
 **The reduced code was never under test.** Both target repos use a
 `src/` layout, and the harness installed the *cache* checkout, so
@@ -69,15 +85,55 @@ stub the test body to `pass`, stub every fixture to `pass`, and then
 delete the library nothing depended on any more. That produced a
 "99.6% reduction" whose surviving tree was two files of empty stubs.
 
-The last one is a category error rather than a bug in a heuristic: the
-test file is the *oracle*, the statement of what must remain true, not
-code to be reduced. Files named in the reproduction command — plus any
-`conftest.py` above them — are now protected, but only for test-runner
-commands. Under `python main.py` the script *is* the subject, and that
-case is self-protecting anyway, since the oracle compares the traceback
-including the line that raised.
+That third one is a category error rather than a bug in a heuristic:
+the test file is the *oracle*, the statement of what must remain true,
+not code to be reduced. Files named in the reproduction command — plus
+any `conftest.py` above them — are now protected, but only for
+test-runner commands. Under `python main.py` the script *is* the
+subject, and that case is self-protecting anyway, since the oracle
+compares the traceback including the line that raised.
 
-**The check that catches all three is a vacuity probe, not a size
+**The oracle judged code that was not on disk.** CPython decides a
+cached `.pyc` is fresh by comparing the source's `(mtime, size)`, and
+the mtime it stores has one-second resolution. The reducer rewrites the
+same file several times per second, so two candidates for one file that
+happen to share a byte length — trivially common, swap one statement
+for another of equal width — are indistinguishable to that check.
+Python then imports the *previous* candidate's bytecode, and the
+validator reports on code that no longer exists.
+
+That is worse than noise. A candidate that genuinely breaks the bug can
+be accepted because stale bytecode still holds the working version. It
+also made runs unreproducible, since whether two writes land in the same
+clock tick is pure timing — the same task, with the hash seed pinned,
+took 1449 / 1407 / 1407 queries on three runs. The benchmark's own
+fidelity check had the same hole: it scored the tree in the directory
+the reducer had just rewritten, so a tree that did not actually
+reproduce could still score 1.
+
+Every subprocess that must observe the tree as written now goes through
+`validator.oracle_env()`, which sets `PYTHONDONTWRITEBYTECODE`; the
+fidelity check additionally purges `__pycache__` before scoring, so the
+verifier does not depend on a setting chosen by the code it verifies.
+`autorepro_min/tests/test_oracle_sees_current_source.py` rewrites a
+module to a same-length body and fails if the change goes unobserved.
+
+Suppressing writes is not sufficient on its own, which took a second
+pass to notice: it says nothing about bytecode that was already there
+when reduction started, and the benchmark leaves some, because it runs
+the reproduction command once to check the baseline is healthy before
+handing the tree over. Reduction now purges `__pycache__` when it
+begins, so the invariant is one the reducer establishes rather than one
+it inherits.
+
+The first three failures inflated the reduction figures. This one did
+not: reduction is within a line or two of what it was, and what actually
+moved was the query count, down 4.7%, because false rejections had been
+forcing wasted re-subdivision. Its cost was correctness and
+reproducibility rather than headline numbers, which is exactly why it
+survived three rounds of auditing the headline numbers.
+
+**The check that catches the first three is a vacuity probe, not a size
 assertion.** Size cannot distinguish a good reduction from a destroyed
 one. `autorepro_min/tests/test_no_vacuous_reduction.py` sabotages the
 library on purpose and requires the test to notice; a reduction that
@@ -131,7 +187,10 @@ twenty queries.
   mostly live. Cost scales with removable *density*, not candidate
   count. Stopping the descent at groups of 8 makes it a real win:
   11,676 queries against 12,171 with no batch pass and 13,066
-  unbounded, at equal or better output. Comment stripping keeps the
+  unbounded, at equal or better output. Those three were measured
+  together on the pre-`PYTHONDONTWRITEBYTECODE` pipeline, so they
+  compare fairly with each other but none is the current baseline — the
+  bounded configuration now costs 11,126. Comment stripping keeps the
   unbounded descent, because it has no per-unit pass behind it and
   singleton probes are the only thing that can isolate one live
   `# noqa`.
@@ -190,8 +249,14 @@ must re-examine.
 Held out end to end, against the identical reducer, it buys **5.7% fewer
 queries and gives up 6 lines** (11,676 → 11,006 queries; 9,227 → 9,233
 lines). That is the wrong trade for this project — complete minimization
-is the goal, and queries are ~99% subprocess time either way — so it is
-**off by default**, behind `--use-learned-oracle`.
+is the goal — so it is **off by default**, behind
+`--use-learned-oracle`.
+
+Both arms of that comparison predate the stale-bytecode fix. The
+baseline has since moved to 11,126 queries on its own, which is most of
+what the oracle was buying; the oracle arm has not been re-run, so its
+margin against the current pipeline is unmeasured and is more likely to
+have shrunk than grown.
 
 It is also worth saying what the model learned: `coverage_ratio`
 dominates the permutation importances, with `body_coverage_ratio`
@@ -209,10 +274,10 @@ python -m autorepro_min.src.cli reduce-project ./my_project \
   -c "python3 -m pytest tests/test_bug.py::test_foo -x -q" \
   -v
 
-# Tests (30, ~7s)
+# Tests (32, ~7s)
 python -m pytest autorepro_min/tests/
 
-# Benchmark. Provisions a pinned venv on first run; ~55 min for 6 tasks
+# Benchmark. Provisions a pinned venv on first run; ~53 min for 6 tasks
 python evaluation/gistify_runner.py
 
 # Same benchmark with the learned oracle (off by default)
