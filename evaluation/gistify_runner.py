@@ -316,10 +316,32 @@ def _baseline_health(output: str, rc: int) -> Optional[str]:
     return None
 
 
+def _purge_bytecode(root: Path) -> None:
+    """Drop every __pycache__ under root so the next run compiles sources."""
+    for cache_dir in root.rglob("__pycache__"):
+        shutil.rmtree(cache_dir, ignore_errors=True)
+
+
 def _check_execution_fidelity(work_dir: Path, cmd: List[str],
                               baseline_output: str, baseline_rc: int,
                               timeout: int) -> bool:
-    """Does the reduced tree produce the same normalized output?"""
+    """Does the reduced tree produce the same normalized output?
+
+    Compiled bytecode is cleared first. This check scores the benchmark, so
+    it has to answer for the source in work_dir and nothing else — and it
+    runs in the same directory the reducer just rewrote hundreds of times.
+    A .pyc left there is judged fresh on a one-second mtime, which is
+    coarser than the reducer's write rate, so the check could otherwise
+    import an earlier candidate's bytecode and score a tree that does not
+    actually reproduce as a success.
+
+    The reducer already avoids writing bytecode (see validator.oracle_env),
+    which would make this purge redundant — but a verifier that is only
+    correct because of a setting chosen by the code under test is not
+    independent, and that setting is exactly the kind of thing a later
+    change quietly flips.
+    """
+    _purge_bytecode(work_dir)
     try:
         proc = subprocess.run(cmd, cwd=work_dir, capture_output=True,
                               text=True, timeout=timeout)
