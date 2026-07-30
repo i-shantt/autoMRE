@@ -1,0 +1,127 @@
+{
+  "n_rows": 2506,
+  "n_safe": 1571,
+  "n_unsafe": 935,
+  "safe_rate": 0.6268954509177973,
+  "repos": [
+    "pallets/flask",
+    "psf/requests"
+  ],
+  "n_tasks": 2,
+  "feature_count": 40,
+  "cv": {
+    "folds": [
+      {
+        "held_out_repo": "pallets/flask",
+        "n_train": 843,
+        "n_test": 1663,
+        "test_safe_rate": 0.5423932651834035,
+        "auc": 0.8489150988750361,
+        "precision_at_recall_0.5": 1.0,
+        "precision_above_0.9": 0.9407051282051282,
+        "n_above_0.9": 624,
+        "precision_below_0.1": 0.7796610169491526,
+        "n_below_0.1": 472
+      },
+      {
+        "held_out_repo": "psf/requests",
+        "n_train": 1663,
+        "n_test": 843,
+        "test_safe_rate": 0.7935943060498221,
+        "auc": 0.9588809855162105,
+        "precision_at_recall_0.5": 1.0,
+        "precision_above_0.9": 0.9599383667180277,
+        "n_above_0.9": 649,
+        "precision_below_0.1": 0.90625,
+        "n_below_0.1": 64
+      }
+    ],
+    "pooled_out_of_fold": {
+      "auc": 0.8971502193840907,
+      "precision_at_recall_0.5": 1.0,
+      "precision_above_0.9": 0.950510604870385,
+      "n_above_0.9": 1273,
+      "precision_below_0.1": 0.7947761194029851,
+      "n_below_0.1": 536,
+      "base_rate_safe": 0.6268954509177973
+    }
+  },
+  "importances": [
+    {
+      "feature": "coverage_ratio",
+      "importance": 0.17801437825289246,
+      "std": 0.0074843449554917235
+    },
+    {
+      "feature": "body_coverage_ratio",
+      "importance": 0.0548823767687736,
+      "std": 0.0033063618570696235
+    },
+    {
+      "feature": "depth_in_ast",
+      "importance": 0.035496482025481856,
+      "std": 0.003220141878924293
+    },
+    {
+      "feature": "sibling_count",
+      "importance": 0.0298204760753905,
+      "std": 0.001539542862940101
+    },
+    {
+      "feature": "n_bytes",
+      "importance": 0.016607460761053416,
+      "std": 0.0018640573914236922
+    },
+    {
+      "feature": "is_dunder",
+      "importance": 0.00553875899066294,
+      "std": 0.0006322293091857288
+    },
+    {
+      "feature": "n_covered_lines",
+      "importance": 0.004740840841862992,
+      "std": 0.0008712094378620876
+    },
+    {
+      "feature": "references_in_file",
+      "importance": 0.0029104048308750243,
+      "std": 0.00031983677434319855
+    },
+    {
+      "feature": "has_side_effect_token",
+      "importance": 0.0023425591520098155,
+      "std": 0.0008341310846083878
+    },
+    {
+      "feature": "n_child_units",
+      "importance": 0.0020873315473981303,
+      "std": 0.0005458837125771599
+    },
+    {
+      "feature": "node_type_return_statement",
+      "importance": 0.0015680260878148556,
+      "std": 0.00036618182791129804
+    },
+    {
+      "feature": "node_type_expression_statement",
+      "importance": 0.001484867773855636,
+      "std": 0.0003051471719416521
+    },
+    {
+      "feature": "is_init_file",
+      "importance": 0.0014754388532797868,
+      "std": 0.0003756984262601475
+    },
+    {
+      "feature": "n_lines",
+      "importance": 0.0013575943657944344,
+      "std": 0.00019672408263109918
+    },
+    {
+      "feature": "node_type_for_statement",
+      "importance": 0.0011811680288108973,
+      "std": 0.0004327572479276838
+    }
+  ],
+  "model_path": "/private/tmp/claude-501/-Users-ishant-Downloads-workspace-project/6d20089b-b8ab-4c25-8bc6-fd832d93c90b/scratchpad/heldout_model.pkl"
+}
