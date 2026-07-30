@@ -46,20 +46,28 @@ class ProjectAnalysis:
     classification: Dict[Path, FileClass]
     original_trace: ExecutionTrace
 
-    @property
-    def executed_files(self) -> Set[Path]:
-        return {f for f, c in self.classification.items()
-                if c is FileClass.EXECUTED}
+    # These are returned sorted, not as sets, and that is load-bearing.
+    # Path hashes off its string, so a Set[Path] iterates in an order that
+    # PYTHONHASHSEED changes from process to process. Anything downstream
+    # that walks one of these — Phase 2b's delete probes, Phase 3's inline
+    # order — then makes different choices on identical input, and the run
+    # spends a different number of queries. Handing back a sorted list
+    # keeps the pipeline reproducible at the source.
+
+    def _of_class(self, want: FileClass) -> List[Path]:
+        return sorted(f for f, c in self.classification.items() if c is want)
 
     @property
-    def imported_only_files(self) -> Set[Path]:
-        return {f for f, c in self.classification.items()
-                if c is FileClass.IMPORTED_ONLY}
+    def executed_files(self) -> List[Path]:
+        return self._of_class(FileClass.EXECUTED)
 
     @property
-    def unreachable_files(self) -> Set[Path]:
-        return {f for f, c in self.classification.items()
-                if c is FileClass.UNREACHABLE}
+    def imported_only_files(self) -> List[Path]:
+        return self._of_class(FileClass.IMPORTED_ONLY)
+
+    @property
+    def unreachable_files(self) -> List[Path]:
+        return self._of_class(FileClass.UNREACHABLE)
 
 
 class DependencyAnalyzer:

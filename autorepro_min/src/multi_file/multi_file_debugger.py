@@ -236,7 +236,7 @@ class MultiFileDebugger:
         imported_deleted: List[Path] = []
         # Order: larger files first — biggest wins if they're truly dead.
         candidates = sorted(analysis.imported_only_files,
-                            key=lambda p: -self._line_count(p))
+                            key=self._largest_first)
         for f in candidates:
             if not f.exists() or f.resolve() in protected:
                 continue
@@ -284,7 +284,7 @@ class MultiFileDebugger:
             if not f.exists() or f.resolve() in protected:
                 continue
             importers = [
-                imp for imp in analysis.reverse_graph.get(f, set())
+                imp for imp in sorted(analysis.reverse_graph.get(f, set()))
                 if imp.exists() and imp != f]
             if not importers:
                 continue
@@ -316,7 +316,7 @@ class MultiFileDebugger:
         oracle_held_back_files = 0
         final_survivors = [f for f in analysis.all_files if f.exists()]
         # Prioritize larger files first so big wins land early.
-        final_survivors.sort(key=lambda p: -self._line_count(p))
+        final_survivors.sort(key=self._largest_first)
 
         # Phase 1's coverage described the original file layout. After
         # Phase 3 inlining, importers now contain code that never ran
@@ -542,7 +542,7 @@ class MultiFileDebugger:
         """
         deleted: List[Path] = []
         queries = 0
-        for f in sorted(files, key=lambda p: -self._line_count(p)):
+        for f in sorted(files, key=self._largest_first):
             if not f.exists():
                 continue
             content = f.read_text()
@@ -599,6 +599,19 @@ class MultiFileDebugger:
             return len(path.read_text().splitlines())
         except OSError:
             return 0
+
+    def _largest_first(self, path: Path) -> tuple:
+        """Total-order sort key: biggest file first, path breaking ties.
+
+        Size alone is not a total order — files sharing a line count are
+        common, and their relative order then falls out of whatever the
+        caller iterated. Where that caller is a `Set[Path]`, the order
+        follows Path's string hash, which PYTHONHASHSEED randomizes per
+        process: the same tree reduced twice takes different paths and
+        spends a different number of queries. The path tiebreaker makes
+        every size-ordered pass reproducible.
+        """
+        return (-self._line_count(path), path.as_posix())
 
     def _log(self, msg: str) -> None:
         if self.verbose:
