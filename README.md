@@ -16,20 +16,29 @@ Six pytest tasks across `psf/requests v2.32.3` and `pallets/flask 3.0.3`
 
 | task | lines | reduction | files | queries |
 |------|------:|----------:|:-----:|--------:|
-| requests-super_len_partial   | 11209 → 1181 | 89.5% | 36 → 10 | 1464 |
-| requests-guess_json_utf      | 11209 → 1200 | 89.3% | 36 → 10 | 1504 |
-| requests-content_disposition | 11209 → 1193 | 89.4% | 36 → 10 | 1456 |
-| requests-cookie_utils        | 11209 → 1204 | 89.3% | 36 → 10 | 1509 |
-| flask-request_ctx_basic      | 17565 → 2485 | 85.9% | 82 → 13 | 2866 |
-| flask-blueprint_registration | 17565 → 1968 | 88.8% | 82 → 17 | 3372 |
+| requests-super_len_partial   | 11209 → 1180 | 89.5% | 36 → 10 | 1415 |
+| requests-guess_json_utf      | 11209 → 1199 | 89.3% | 36 → 10 | 1476 |
+| requests-content_disposition | 11209 → 1193 | 89.4% | 36 → 10 | 1361 |
+| requests-cookie_utils        | 11209 → 1204 | 89.3% | 36 → 10 | 1427 |
+| flask-request_ctx_basic      | 17565 → 2483 | 85.9% | 82 → 13 | 2688 |
+| flask-blueprint_registration | 17565 → 1968 | 88.8% | 82 → 17 | 3309 |
 
 **88.5% aggregate line reduction, 6/6 execution fidelity.** Raw data in
-`evaluation/results_gistify_v5_sound.json`.
+`evaluation/results_gistify_heuristic_bounded.json`.
 
-Reduction is the expensive part: ~2000 validation queries per task at
-roughly 170 ms each. Around 99% of wall time is the subprocess running
-the target test; the reducer's own work is about 0.5 ms per query. The
-only lever that matters is asking fewer questions.
+That headline number undersells the tool, because 79% of what survives
+is the test file, which is deliberately never touched — it is the
+statement of what must remain true. Measured over the code actually
+eligible for removal, reduction is **97.4%**: `psf/requests` goes from
+10,193 reducible lines to 164–188, and `flask-request_ctx_basic` from
+15,515 to 433.
+
+Reduction is the expensive part: ~1950 validation queries per task at
+roughly 170 ms each, about 55 minutes for all six. Around 99% of wall
+time is the subprocess running the target test; the reducer's own work
+is about 0.5 ms per query. The only lever that matters is asking fewer
+questions — and it is a lever on runtime alone, never on output, so it
+is worth pulling only when it costs no minimality.
 
 ## Why these numbers are trustworthy
 
@@ -103,10 +112,29 @@ twenty queries.
 **Phase 4 — Intra-file reduction.**
 - 4a: coverage-based bulk prune — drop definitions with zero executed
   lines in one query per file, rolling back if the bug breaks.
-- 4b: delta debugging over AST units. Each pass walks every candidate
-  once and accumulates the removals that stick, repeating until a pass
-  changes nothing. Unparseable candidates are rejected locally rather
-  than spending a subprocess on an edit no oracle could accept.
+- 4b: delta debugging over AST units, in two stages. First a batch pass
+  asks whether all top-level units can go at once and halves on refusal,
+  ddmin-style, to strip bulk cheaply. Then a per-unit pass walks every
+  remaining candidate once and accumulates the removals that stick,
+  repeating until a pass changes nothing. Unparseable candidates are
+  rejected locally rather than spending a subprocess on an edit no
+  oracle could accept.
+
+  The halving descent is bounded, and the reason is the sharpest
+  measurement lesson in this project. Unbounded, a set with nothing
+  removable costs one probe per node of a binary tree over it — exactly
+  2n−1 for n spans, where asking per unit costs n — and every singleton
+  it probes is a unit the per-unit pass then probes again. On isolated
+  modules the pass looked like a 35–40% win; in the pipeline it *cost*
+  14–475 queries per task and bought one line, because Phase 4a has
+  already dropped the zero-coverage definitions and what survives is
+  mostly live. Cost scales with removable *density*, not candidate
+  count. Stopping the descent at groups of 8 makes it a real win:
+  11,676 queries against 12,171 with no batch pass and 13,066
+  unbounded, at equal or better output. Comment stripping keeps the
+  unbounded descent, because it has no per-unit pass behind it and
+  singleton probes are the only thing that can isolate one live
+  `# noqa`.
 - Then: collapse function bodies to `pass` where the body turns out not
   to matter (deletion can never empty a body — Python needs one
   statement — so a docstring would otherwise be pinned in place), strip
@@ -129,13 +157,47 @@ reducing code that was never under test, so they describe nothing.
   `ml-prioritizer`). Reported as producing byte-identical output at
   7–12× overhead. That "convergence" was every ordering reaching the
   same place because no removal affected the test.
-- **Learned removability oracle** (branch history on `master`, `ml/`).
-  Reported as cutting queries 55% with identical output, held out. Its
-  10,074 training rows were harvested from the broken pipeline and
-  describe a reducer that no longer exists.
+- **Learned removability oracle** (`ml/`). Reported as cutting queries
+  55% with identical output, held out. Its 10,074 training rows were
+  harvested while nothing being removed was under test, so almost every
+  skip looked free. **Re-measured — see below.**
 
-Both need re-running before any claim is made. The code is retained; the
-numbers are not.
+The LLM prioritizer has not been re-run. The code is retained; the
+number is not.
+
+## The learned oracle, re-measured
+
+Retrained from scratch on **9,423 validated removal attempts** across 8
+tasks. The old rows were not merely stale, they were wrong per row: they
+were harvested while the reducer was gutting its own oracle, so they
+recorded destruction rather than dead code. The signature is in the
+class balance, which inverted from 7.0% safely-removable to **63.9%**
+once the test file was protected.
+
+Leave-one-repo-out, so no fold scores a repo it trained on:
+
+| held out | rows | AUC |
+|---|-----:|----:|
+| `pallets/flask` | 5184 | 0.850 |
+| `psf/requests`  | 4239 | 0.963 |
+| pooled          | 9423 | **0.912** |
+
+Precision is 95.1% at p>0.9 and **79.5% at p<0.1**. The second number is
+the one that matters, because p<0.1 is what the reducer skips: roughly a
+fifth of skips are wrong, and a wrong skip leaves code that later passes
+must re-examine.
+
+Held out end to end, against the identical reducer, it buys **5.7% fewer
+queries and gives up 6 lines** (11,676 → 11,006 queries; 9,227 → 9,233
+lines). That is the wrong trade for this project — complete minimization
+is the goal, and queries are ~99% subprocess time either way — so it is
+**off by default**, behind `--use-learned-oracle`.
+
+It is also worth saying what the model learned: `coverage_ratio`
+dominates the permutation importances, with `body_coverage_ratio`
+second. It largely rediscovers what Phase 4a already encodes, and the
+AST-shape features are what it adds on top. An honest 6.5% → 5.7%,
+shrinking as the reducer around it got better, is the result.
 
 ## Install and run
 
@@ -147,11 +209,14 @@ python -m autorepro_min.src.cli reduce-project ./my_project \
   -c "python3 -m pytest tests/test_bug.py::test_foo -x -q" \
   -v
 
-# Tests (~8s)
+# Tests (30, ~7s)
 python -m pytest autorepro_min/tests/
 
-# Benchmark. Provisions a pinned venv on first run; ~65 min for 6 tasks
+# Benchmark. Provisions a pinned venv on first run; ~55 min for 6 tasks
 python evaluation/gistify_runner.py
+
+# Same benchmark with the learned oracle (off by default)
+python evaluation/gistify_runner.py --use-learned-oracle
 ```
 
 The benchmark pins `pytest==9.0.0` in `.gistify_venv`. flask's conftest
