@@ -29,6 +29,7 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_ROOT / "autorepro_min" / "src"))
 
+from multi_file.multi_file_debugger import MultiFileDebugger  # noqa: E402
 from multi_file.multi_file_validator import MultiFileValidator  # noqa: E402
 
 
@@ -74,3 +75,49 @@ def test_repeated_same_length_rewrites_all_observed(tmp_path: Path) -> None:
         assert validator.validate() is expect_match, (
             f"iteration {i}: validator did not observe the rewrite"
         )
+
+
+def test_reduction_discards_inherited_bytecode(tmp_path: Path) -> None:
+    """Bytecode left by whoever ran the project before us must not survive.
+
+    Suppressing writes keeps the reduction from caching its own candidates,
+    but says nothing about a `__pycache__` that already existed — a caller
+    verifying the command works, a prior test run, an editor. Those entries
+    are reused on any source whose (mtime, size) still matches, so the
+    reducer has to clear them itself rather than assume a clean tree.
+
+    Driven through `reduce_project` rather than the helper, because the
+    property at stake is that reduction *starts* clean. Testing the helper
+    alone would pass even if nothing ever called it. Since the reduction's
+    own subprocesses no longer write bytecode, any `__pycache__` left at
+    the end is necessarily the inherited one, still sitting there.
+    """
+    import subprocess
+
+    proj = tmp_path / "inherited"
+    proj.mkdir()
+    (proj / "mylib.py").write_text("def add(a, b):\n    return a + b\n")
+    (proj / "test_mylib.py").write_text(
+        "import mylib\n\n\ndef test_add():\n    assert mylib.add(2, 3) == 5\n")
+
+    target = "test_mylib.py::test_add"
+    cmd = [sys.executable, "-m", "pytest", target, "-q", "--no-header"]
+
+    # Stand in for anything that ran the project first: a normal run with
+    # bytecode caching left on, which is what populates __pycache__.
+    assert subprocess.run(cmd, cwd=proj, capture_output=True,
+                          text=True, timeout=120).returncode == 0
+    assert list(proj.rglob("__pycache__")), (
+        "precondition failed: the setup run wrote no bytecode, so this test "
+        "would pass without exercising anything"
+    )
+
+    debugger = MultiFileDebugger(verbose=False, timeout=60,
+                                 python=sys.executable)
+    debugger.reduce_project(proj, cmd)
+
+    assert not list(proj.rglob("__pycache__")), (
+        "reduction ran against a tree still holding bytecode it inherited "
+        "from an earlier run; a same-length rewrite could be judged against "
+        "that stale compile"
+    )

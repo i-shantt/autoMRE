@@ -17,6 +17,7 @@ to preserve the original should copy the project first (the CLI does).
 
 from __future__ import annotations
 
+import shutil
 import sys as _sys
 import time
 from dataclasses import dataclass, field
@@ -152,10 +153,31 @@ class MultiFileDebugger:
 
     # ---------------------------------------------------------- public
 
+    @staticmethod
+    def _purge_bytecode(root: Path) -> None:
+        """Drop every `__pycache__` under `root`.
+
+        `oracle_env` stops the reduction's own subprocesses from *writing*
+        bytecode, which is what makes the oracle sound. It cannot stop them
+        reading bytecode that was already there, and anything that ran the
+        project before us — a caller checking the command works, a test
+        suite, an editor — leaves some. A `.pyc` is reused whenever the
+        source's `(mtime, size)` matches what it recorded, so an inherited
+        one plus a same-length rewrite inside the same clock second is the
+        original bug again, arriving through the door we did not close.
+
+        Clearing it here means the invariant holds because the reducer
+        establishes it, not because callers happened to leave a clean tree.
+        """
+        for cache_dir in root.rglob("__pycache__"):
+            shutil.rmtree(cache_dir, ignore_errors=True)
+
     def reduce_project(self, project_dir: Path,
                        test_command: List[str]) -> MultiFileReductionResult:
         project_dir = Path(project_dir).resolve()
         start = time.time()
+
+        self._purge_bytecode(project_dir)
 
         # ------------- Phase 1
         self._log("Phase 1: analyzing project...")
