@@ -57,13 +57,24 @@ def _apply_edits(source: str,
     return out
 
 
-def _largest_removable_subset(spans, ok, _depth: int = 0):
+def _largest_removable_subset(spans, ok, min_chunk: int = 1, _depth: int = 0):
     """Biggest subset of `spans` that can be removed together.
 
     Halving, in the spirit of ddmin: ask about the whole set first, and
     only split when the answer is no. When a file carries three hundred
     comments and exactly one `# noqa` that matters, this isolates it in
     O(log n) probes instead of asking about each comment in turn.
+
+    `min_chunk` stops the descent: a group at or below it whose whole
+    fails returns nothing instead of subdividing. That matters because
+    the cost here is driven by removable *density*, not by n. When
+    nothing in the set can go, the recursion visits every node of a
+    binary tree over the spans — about 2n probes, where asking per span
+    costs n. Callers with a per-span fallback pass behind them should
+    bound the descent and let that pass do the fine-grained work;
+    callers with no fallback (comments) must leave it at 1, since
+    singleton probes are the only thing that can isolate the one span
+    that matters.
 
     Every set returned has been confirmed removable by `ok`, so the
     caller never has to re-validate the result.
@@ -72,12 +83,12 @@ def _largest_removable_subset(spans, ok, _depth: int = 0):
         return []
     if ok(list(spans)):
         return list(spans)
-    if len(spans) == 1:
+    if len(spans) <= max(1, min_chunk):
         return []
 
     mid = len(spans) // 2
-    left = _largest_removable_subset(spans[:mid], ok, _depth + 1)
-    right = _largest_removable_subset(spans[mid:], ok, _depth + 1)
+    left = _largest_removable_subset(spans[:mid], ok, min_chunk, _depth + 1)
+    right = _largest_removable_subset(spans[mid:], ok, min_chunk, _depth + 1)
 
     combined = left + right
     # Each half is removable alone; together they may not be (one may
@@ -227,6 +238,12 @@ class HybridDeltaDebugger:
     # Minimum outermost candidates before the batch/halving pass is worth
     # running. See _batch_deletion_pass for the measurements behind it.
     MIN_BATCH_CANDIDATES = 12
+
+    # Smallest group the batch pass will subdivide. Its job is stripping
+    # bulk; isolating individual units is the per-unit pass's job, and
+    # doing it twice is what made the batch pass a net loss on the real
+    # benchmark. See _largest_removable_subset.
+    BATCH_MIN_CHUNK = 8
 
     def __init__(self, parser: Optional[PythonParser] = None,
                  tracer: Optional[ExecutionTracer] = None,
@@ -534,13 +551,18 @@ class HybridDeltaDebugger:
             if not _overlaps(span, outermost):
                 outermost.append(span)
 
-        # Halving only pays when there is enough to halve. Measured on
-        # four real modules it cut queries 35-40% (utils.py 95->62,
-        # app.py 101->63, helpers.py 38->23), but on a four-unit file it
-        # went 11->15: with few candidates the probes spent locating
-        # boundaries outnumber the per-unit queries they replace. Below
-        # the threshold the per-unit pass is already cheap, so skip
-        # straight to it.
+        # Halving only pays when there is enough to halve. On a four-unit
+        # file it went 11->15: with few candidates the probes spent
+        # locating boundaries outnumber the per-unit queries they
+        # replace. Below the threshold the per-unit pass is already
+        # cheap, so skip straight to it.
+        #
+        # Measured in isolation this pass cut queries 35-40% on single
+        # modules (utils.py 95->62, app.py 101->63). Do not read that as
+        # the pipeline's behavior: in the pipeline Phase 4a has already
+        # dropped the zero-coverage definitions, so the surviving
+        # candidates are mostly live, the bulk probes fail, and the win
+        # shrinks to whatever BATCH_MIN_CHUNK still allows.
         if len(outermost) < self.MIN_BATCH_CANDIDATES:
             return None
 
@@ -555,7 +577,8 @@ class HybridDeltaDebugger:
             stats.failed_removals += 1
             return False
 
-        removable = _largest_removable_subset(outermost, ok)
+        removable = _largest_removable_subset(outermost, ok,
+                                              min_chunk=self.BATCH_MIN_CHUNK)
         if not removable:
             return None
 

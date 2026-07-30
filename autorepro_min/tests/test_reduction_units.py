@@ -18,6 +18,7 @@ from reducer import (  # noqa: E402
     _apply_removals,
     _collapse_blank_lines,
     _is_parseable,
+    _largest_removable_subset,
     _overlaps,
 )
 from validator import Validator  # noqa: E402
@@ -159,3 +160,74 @@ def test_normalizer_does_not_conflate_different_errors():
 def test_normalizer_ignores_pytest_durations():
     assert (Validator._normalize_output("5 passed in 0.08s") ==
             Validator._normalize_output("5 passed in 1.42s"))
+
+
+# --------------------------------------------------------------- halving
+
+def _counting_probe(removable):
+    """An `ok` that accepts only subsets of `removable`, counting calls."""
+    allowed = set(removable)
+    calls = []
+
+    def ok(spans):
+        calls.append(list(spans))
+        return set(spans) <= allowed
+
+    return ok, calls
+
+
+def test_halving_finds_bulk_in_log_probes():
+    """The case the batch pass exists for: everything can go at once."""
+    spans = [(i, i + 1) for i in range(64)]
+    ok, calls = _counting_probe(spans)
+
+    assert _largest_removable_subset(spans, ok, min_chunk=8) == spans
+    assert len(calls) == 1
+
+
+def test_halving_does_not_pay_2n_probes_when_nothing_is_removable():
+    """The regression this guards against.
+
+    With an unbounded descent an unremovable set costs one probe per node
+    of a binary tree over the spans — ~2n, where the per-unit pass that
+    runs next asks n. The batch pass then made the pipeline slower while
+    finding nothing. Bounded, it must give up well short of n.
+    """
+    spans = [(i, i + 1) for i in range(64)]
+    ok, calls = _counting_probe([])
+
+    assert _largest_removable_subset(spans, ok, min_chunk=8) == []
+    assert len(calls) < len(spans), (
+        f"{len(calls)} probes to learn nothing is removable from "
+        f"{len(spans)} spans; the per-unit pass would cost {len(spans)}")
+
+
+def test_halving_leaves_sub_chunk_isolation_to_the_per_unit_pass():
+    """Bounding the descent trades granularity away on purpose.
+
+    A lone removable span inside a chunk of 8 is not found here. That is
+    the intended split of labor, not a soundness bug: the per-unit pass
+    runs next over whatever survives and will find it.
+    """
+    spans = [(i, i + 1) for i in range(64)]
+    ok, _ = _counting_probe([spans[3]])
+
+    assert _largest_removable_subset(spans, ok, min_chunk=8) == []
+    # Unbounded, the same set is isolated exactly -- which is why the
+    # comment pass, having no fallback behind it, keeps min_chunk=1.
+    ok_unbounded, _ = _counting_probe([spans[3]])
+    assert _largest_removable_subset(spans, ok_unbounded) == [spans[3]]
+
+
+def test_halving_confirms_the_union_of_two_removable_halves():
+    """Two halves each safe alone need not be safe together."""
+    spans = [(0, 1), (2, 3)]
+    calls = []
+
+    def ok(subset):
+        calls.append(list(subset))
+        # Either alone is fine; both at once breaks.
+        return len(subset) < 2
+
+    assert _largest_removable_subset(spans, ok) in ([(0, 1)], [(2, 3)])
+    assert [(0, 1), (2, 3)] in calls, "union was claimed without a probe"

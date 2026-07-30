@@ -69,4 +69,6 @@ BugsInPy/
 # Oracle training data: regenerable via evaluation/generate_oracle_data.py,
 # and 13 MB of derived JSONL does not belong in the history.
 evaluation/oracle_training_data.jsonl
-evaluation/oracle_training_data.summary.json
+
+# Held-out oracle model: derived from the gitignored training JSONL.
+evaluation/heldout_oracle_model.pkl
