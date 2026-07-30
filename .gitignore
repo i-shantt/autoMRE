@@ -65,3 +65,8 @@ evaluation/comparison_results.json
 .gistify_repo_cache/
 BugsInPy/
 .gistify_venv/
+
+# Oracle training data: regenerable via evaluation/generate_oracle_data.py,
+# and 13 MB of derived JSONL does not belong in the history.
+evaluation/oracle_training_data.jsonl
+evaluation/oracle_training_data.summary.json
