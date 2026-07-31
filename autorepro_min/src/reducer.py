@@ -695,11 +695,25 @@ class HybridDeltaDebugger:
         tree-sitter wraps `a = 1` in an expression_statement around an
         assignment covering the same bytes, so without deduping the same
         edit is proposed twice and costs two queries.
+
+        Spans that would remove nothing are dropped here rather than in
+        each caller, since all three deletion passes come through this
+        one function. Such a span is not merely useless, it is a trap:
+        the candidate equals its input, so it validates, the pass
+        records a removal, the source does not shrink, and the outer
+        loop comes round again on identical input until max_iterations
+        stops it. A byte-vs-character offset bug produced exactly that
+        and spent 100 queries on one file. The offsets are fixed; this
+        keeps the next such bug from being expensive as well as wrong.
         """
         units = self._get_flat_units(source_code, trace)
         seen = set()
         unique: List[CodeUnit] = []
         for unit in units:
+            if unit.end_char <= unit.start_char:
+                continue
+            if unit.start_char >= len(source_code):
+                continue
             key = (unit.start_char, unit.end_char)
             if key in seen:
                 continue

@@ -146,16 +146,6 @@ class CoveragePruner:
         return PruneResult(pruned, to_remove, original_line_count,
                            len(pruned.splitlines()))
 
-    def prune_file(self, file_path: Path,
-                   executed_lines: Set[int]) -> PruneResult:
-        """Read `file_path`, prune, write result back. Caller must
-        still validate/rollback."""
-        source = file_path.read_text()
-        result = self.prune_source(source, executed_lines)
-        if result.any_removed:
-            file_path.write_text(result.pruned_source)
-        return result
-
     # -------------------------------------------------------- internals
 
     def _find_prunable(self, node: Node,

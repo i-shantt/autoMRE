@@ -99,6 +99,31 @@ def test_removing_the_last_statement_leaves_the_rest_intact():
     compile(after, "<candidate>", "exec")
 
 
+def test_candidates_drop_spans_that_would_remove_nothing():
+    """Defence in depth: a no-op span must never reach the query loop.
+
+    The offsets are fixed, so the parser no longer produces these. This
+    pins the guard that stops the *next* span bug from costing a hundred
+    queries instead of merely being wrong, by feeding the reducer units
+    the parser would not currently build.
+    """
+    from reducer import HybridDeltaDebugger  # noqa: WPS433
+    from parser import CodeUnit
+
+    source = "A = 1\nB = 2\n"
+    empty = CodeUnit("expression_statement", 1, 1, 6, 6, "")
+    past_end = CodeUnit("expression_statement", 2, 2, 99, 120, "")
+    real = CodeUnit("expression_statement", 1, 1, 0, 5, "A = 1")
+
+    debugger = HybridDeltaDebugger()
+    debugger._get_flat_units = lambda src, trace: [empty, past_end, real]
+
+    kept = debugger._candidates(source, trace=None)
+    assert [(u.start_char, u.end_char) for u in kept] == [(0, 5)], (
+        "a zero-width span and one starting past the end of the source "
+        "both remove nothing and must not be offered as candidates")
+
+
 def test_coverage_pruner_cuts_on_character_boundaries():
     """The Phase 4a pruner slices the same source with the same offsets."""
     executed = {2}  # only the import ran
