@@ -16,15 +16,15 @@ Six pytest tasks across `psf/requests v2.32.3` and `pallets/flask 3.0.3`
 
 | task | lines | reduction | files | queries |
 |------|------:|----------:|:-----:|--------:|
-| requests-super_len_partial   | 11209 → 1180 | 89.5% | 36 → 10 | 1302 |
-| requests-guess_json_utf      | 11209 → 1199 | 89.3% | 36 → 10 | 1339 |
-| requests-content_disposition | 11209 → 1193 | 89.4% | 36 → 10 | 1309 |
-| requests-cookie_utils        | 11209 → 1204 | 89.3% | 36 → 10 | 1340 |
-| flask-request_ctx_basic      | 17565 → 2482 | 85.9% | 82 → 13 | 2634 |
-| flask-blueprint_registration | 17565 → 1967 | 88.8% | 82 → 17 | 3202 |
+| requests-super_len_partial   | 11209 → 1169 | 89.6% | 36 → 10 | 1186 |
+| requests-guess_json_utf      | 11209 → 1188 | 89.4% | 36 → 10 | 1223 |
+| requests-content_disposition | 11209 → 1182 | 89.5% | 36 → 10 | 1193 |
+| requests-cookie_utils        | 11209 → 1193 | 89.4% | 36 → 10 | 1224 |
+| flask-request_ctx_basic      | 17565 → 2482 | 85.9% | 82 → 13 | 2613 |
+| flask-blueprint_registration | 17565 → 1967 | 88.8% | 82 → 17 | 3181 |
 
 **88.5% aggregate line reduction, 6/6 execution fidelity.** Raw data in
-`evaluation/results_gistify_postbytecode.json`.
+`evaluation/results_gistify_charoffsets.json`.
 
 Runs are reproducible: repeated runs of a task are bit-identical, in
 output and in query count, with no pinned hash seed. That is a recent
@@ -33,12 +33,12 @@ property rather than an assumed one — see the fourth entry below.
 That headline number undersells the tool, because 79% of what survives
 is the test file, which is deliberately never touched — it is the
 statement of what must remain true. Measured over the code actually
-eligible for removal, reduction is **97.4%**: `psf/requests` goes from
-10,193 reducible lines to 164–188, and `flask-request_ctx_basic` from
+eligible for removal, reduction is **97.5%**: `psf/requests` goes from
+10,193 reducible lines to 153–177, and `flask-request_ctx_basic` from
 15,515 to 432.
 
-Reduction is the expensive part: ~1850 validation queries per task,
-about 53 minutes for all six. Timing every function on the reduction
+Reduction is the expensive part: ~1770 validation queries per task,
+roughly an hour for all six. Timing every function on the reduction
 path — the validator, the reducer, the parser, the coverage tracer —
 accounts for where that time goes to within half a percent:
 
@@ -74,13 +74,13 @@ they are internal ratios. And an earlier revision of this section
 reported the flask column as 35.6% subprocess and blamed a superlinear
 defect in the reducer — that measurement left 64% of the run
 unexplained, which was reason to distrust it rather than to publish it.
-See the fifth entry below.
+See the sixth entry below.
 
 ## Why these numbers are trustworthy
 
-A minimizer is easy to fool, including by accident. Four earlier
+A minimizer is easy to fool, including by accident. Five earlier
 versions of this benchmark reported reduction numbers that were wrong,
-and a fifth entry covers a performance measurement that was wrong. Each
+and a sixth entry covers a performance measurement that was wrong. Each
 is worth stating because it shapes how the tool is now built and how it
 is now measured.
 
@@ -154,8 +154,40 @@ forcing wasted re-subdivision. Its cost was correctness and
 reproducibility rather than headline numbers, which is exactly why it
 survived three rounds of auditing the headline numbers.
 
+**Removals were cut in the wrong place on any file containing a
+non-ASCII character.** tree-sitter reports node positions as offsets
+into a file's UTF-8 *bytes*; everything downstream sliced a Python
+`str`, which is indexed by *characters*. The two agree exactly until the
+first character that is not ASCII, and diverge by one index per extra
+byte from there on.
+
+`psf/requests` ships `src/requests/certs.py` with a single em dash in
+its module docstring, and that one character was enough. The import
+statement sliced as `om certifi import where`. The last statement in the
+file began at character 414 of a 427-character string and ended at 428.
+Nine of the 118 `.py` files across the two repos have non-ASCII in them.
+
+Both halves of that cost something, and neither is visible from the
+outside. A mis-sliced candidate is garbage, so the syntax check rejects
+it without spending a query — and the unit it came from can then never
+be removed, which made reduction quietly worse on exactly those nine
+files. A span running past the end removes *nothing*, so the candidate
+equals its input: it validates, because nothing changed and the bug
+still reproduces; the pass records a removal; the source does not
+shrink; and the loop comes round again on identical input until
+`max_iterations` stops it. That spent 100 of the 1,319 queries of
+`requests-guess_json_utf` asking one question over and over.
+
+Fixing it cut queries 4.5% and *improved* reduction by 44 lines, which
+is the tell that it was never only a performance bug. The fields are now
+`start_char`/`end_char`, because the name is what made the mistake easy
+to write and invisible to read, and `_candidates` drops any span that
+would remove nothing so the next such bug is cheap rather than
+expensive. It was found by hashing the whole tree at every oracle call
+and counting duplicate states — not by reading the code.
+
 **The profile blamed the reducer, and the profile was the thing that was
-broken.** The four above are all defects in the tool. This one is a
+broken.** The five above are all defects in the tool. This one is a
 defect in a measurement of it, recorded here because the failure mode is
 the more common of the two. Instrumenting only `MultiFileValidator._run`
 and subtracting from wall time attributed 64% of the flask run to the
@@ -235,7 +267,7 @@ twenty queries.
   unbounded, at equal or better output. Those three were measured
   together on the pre-`PYTHONDONTWRITEBYTECODE` pipeline, so they
   compare fairly with each other but none is the current baseline — the
-  bounded configuration now costs 11,126. Comment stripping keeps the
+  bounded configuration now costs 10,620. Comment stripping keeps the
   unbounded descent, because it has no per-unit pass behind it and
   singleton probes are the only thing that can isolate one live
   `# noqa`.
@@ -297,11 +329,12 @@ lines). That is the wrong trade for this project — complete minimization
 is the goal — so it is **off by default**, behind
 `--use-learned-oracle`.
 
-Both arms of that comparison predate the stale-bytecode fix. The
-baseline has since moved to 11,126 queries on its own, which is most of
-what the oracle was buying; the oracle arm has not been re-run, so its
-margin against the current pipeline is unmeasured and is more likely to
-have shrunk than grown.
+Both arms of that comparison predate two later fixes. The baseline has
+since moved to 10,620 queries on its own — more than the 670 the oracle
+claimed to save — and the offset fix that got it there also *improved*
+reduction, where the oracle gives lines up. The oracle arm has not been
+re-run, so its margin against the current pipeline is unmeasured; on
+those numbers it is likelier to have vanished than merely shrunk.
 
 It is also worth saying what the model learned: `coverage_ratio`
 dominates the permutation importances, with `body_coverage_ratio`
@@ -322,7 +355,7 @@ python -m autorepro_min.src.cli reduce-project ./my_project \
 # Tests (32, ~7s)
 python -m pytest autorepro_min/tests/
 
-# Benchmark. Provisions a pinned venv on first run; ~53 min for 6 tasks
+# Benchmark. Provisions a pinned venv on first run; ~1 h for 6 tasks
 python evaluation/gistify_runner.py
 
 # Same benchmark with the learned oracle (off by default)

@@ -39,9 +39,16 @@ def oracle_env(base: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     since whether two writes land in the same clock tick is pure timing.
 
     Writing no bytecode costs a recompile per import and removes the class
-    of bug entirely. Note this only suppresses *writing*: it is safe here
-    because the tree under reduction starts with no __pycache__, so none is
-    ever read either.
+    of bug entirely.
+
+    This only suppresses *writing*, which is not on its own enough: it
+    says nothing about bytecode already present when reduction began, and
+    the benchmark leaves some, because it runs the reproduction command
+    once to check the baseline is healthy before handing the tree over.
+    `MultiFileDebugger.reduce_project` therefore purges `__pycache__` at
+    its head, so the invariant is one the reducer establishes rather than
+    one it inherits. An earlier version of this docstring asserted the
+    tree "starts with no __pycache__"; that was never true.
     """
     env = os.environ.copy()
     if base:
