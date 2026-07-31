@@ -21,10 +21,12 @@ from pathlib import Path
 from typing import Callable, List, Optional, Set, Tuple
 
 from parser import (
+    byte_to_char_offsets,
     CodeUnit,
     format_code_without_units,
     PythonParser,
     remap_executed_lines,
+    to_char_offset,
 )
 from tracer import ExecutionTracer, ExecutionTrace
 from validator import Validator
@@ -137,24 +139,28 @@ def _body_stub_edits(tree, source: str) -> List[Tuple[Tuple[int, int], str]]:
     this class of rewrite for the same reason.
     """
     edits: List[Tuple[Tuple[int, int], str]] = []
+    offsets = byte_to_char_offsets(source)
     for node in _walk(tree.root_node):
         if node.type not in ("function_definition", "class_definition"):
             continue
         block = _block_child(node)
         if block is None:
             continue
-        if source[block.start_byte:block.end_byte].strip() == "pass":
+        start = to_char_offset(offsets, block.start_byte)
+        end = to_char_offset(offsets, block.end_byte)
+        if source[start:end].strip() == "pass":
             continue
         indent = " " * (node.start_point[1] + 4)
-        edits.append(((block.start_byte, block.end_byte),
-                      "\n" + indent + "pass"))
+        edits.append(((start, end), "\n" + indent + "pass"))
     edits.sort(key=lambda e: -(e[0][1] - e[0][0]))
     return edits
 
 
-def _comment_spans(tree) -> List[Tuple[int, int]]:
-    return [(n.start_byte, n.end_byte) for n in _walk(tree.root_node)
-            if n.type == "comment"]
+def _comment_spans(tree, source: str) -> List[Tuple[int, int]]:
+    offsets = byte_to_char_offsets(source)
+    return [(to_char_offset(offsets, n.start_byte),
+             to_char_offset(offsets, n.end_byte))
+            for n in _walk(tree.root_node) if n.type == "comment"]
 
 
 def _collapse_blank_lines(source: str) -> str:
@@ -397,7 +403,7 @@ class HybridDeltaDebugger:
 
             removed_spans: List[Tuple[int, int]] = []
             for unit in candidates:
-                span = (unit.start_byte, unit.end_byte)
+                span = (unit.start_char, unit.end_char)
 
                 # Skip anything already inside a removed region: its
                 # bytes are gone, so the edit is meaningless and the
@@ -545,9 +551,9 @@ class HybridDeltaDebugger:
 
         outermost: List[Tuple[int, int]] = []
         for unit in sorted(candidates,
-                           key=lambda u: (u.start_byte,
-                                          -(u.end_byte - u.start_byte))):
-            span = (unit.start_byte, unit.end_byte)
+                           key=lambda u: (u.start_char,
+                                          -(u.end_char - u.start_char))):
+            span = (unit.start_char, unit.end_char)
             if not _overlaps(span, outermost):
                 outermost.append(span)
 
@@ -599,7 +605,7 @@ class HybridDeltaDebugger:
             return None
         removed: List[Tuple[int, int]] = []
         for unit in candidates:
-            span = (unit.start_byte, unit.end_byte)
+            span = (unit.start_char, unit.end_char)
             if _overlaps(span, removed):
                 continue
             cand = _apply_removals(source, removed + [span])
@@ -667,7 +673,7 @@ class HybridDeltaDebugger:
         rather than assumed safe.
         """
         tree = self.parser.parse_source(source)
-        spans = _comment_spans(tree)
+        spans = _comment_spans(tree, source)
         if not spans:
             return source
 
@@ -694,7 +700,7 @@ class HybridDeltaDebugger:
         seen = set()
         unique: List[CodeUnit] = []
         for unit in units:
-            key = (unit.start_byte, unit.end_byte)
+            key = (unit.start_char, unit.end_char)
             if key in seen:
                 continue
             seen.add(key)

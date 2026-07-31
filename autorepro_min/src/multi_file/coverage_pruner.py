@@ -45,18 +45,22 @@ _SRC_DIR = Path(__file__).resolve().parent.parent
 if str(_SRC_DIR) not in _sys.path:
     _sys.path.insert(0, str(_SRC_DIR))
 
-from parser import PythonParser
-from parser import remap_executed_lines as _remap_by_bytes
+from parser import PythonParser, byte_to_char_offsets, to_char_offset
+from parser import remap_executed_lines as _remap_by_chars
 
 
 @dataclass
 class RemovedRange:
-    """One byte-range removed from the source, tagged with its node type."""
+    """One removed range, tagged with its node type.
+
+    `start_char`/`end_char` are `str` indices, not byte offsets -- see
+    parser.byte_to_char_offsets for why the distinction matters.
+    """
     node_type: str
     start_line: int
     end_line: int
-    start_byte: int
-    end_byte: int
+    start_char: int
+    end_char: int
 
 
 @dataclass
@@ -86,8 +90,8 @@ def remap_executed_lines(source: str,
     across the prune, and would read it against shifted lines without
     this.
     """
-    return _remap_by_bytes(
-        source, [(r.start_byte, r.end_byte) for r in removed], executed)
+    return _remap_by_chars(
+        source, [(r.start_char, r.end_char) for r in removed], executed)
 
 
 class CoveragePruner:
@@ -123,20 +127,21 @@ class CoveragePruner:
 
         tree = self.parser.parse_source(source)
         to_remove = self._find_prunable(tree.root_node, executed_lines,
-                                        accept)
+                                        accept,
+                                        byte_to_char_offsets(source))
 
         if not to_remove:
             return PruneResult(source, [], original_line_count,
                                original_line_count)
 
-        # Sort by start_byte desc so removals don't shift earlier
+        # Sort by start_char desc so removals don't shift earlier
         # offsets. Because _find_prunable never returns a node whose
         # ancestor is also being removed, ranges never overlap.
-        to_remove.sort(key=lambda r: r.start_byte, reverse=True)
+        to_remove.sort(key=lambda r: r.start_char, reverse=True)
 
         pruned = source
         for r in to_remove:
-            pruned = pruned[:r.start_byte] + pruned[r.end_byte:]
+            pruned = pruned[:r.start_char] + pruned[r.end_char:]
 
         return PruneResult(pruned, to_remove, original_line_count,
                            len(pruned.splitlines()))
@@ -155,7 +160,8 @@ class CoveragePruner:
 
     def _find_prunable(self, node: Node,
                        executed_lines: Set[int],
-                       accept: Optional[Callable[[Node], bool]] = None
+                       accept: Optional[Callable[[Node], bool]] = None,
+                       offsets: Optional[List[int]] = None
                        ) -> List[RemovedRange]:
         """Recursive walk yielding non-overlapping removable ranges.
 
@@ -181,18 +187,19 @@ class CoveragePruner:
                 return []
             if accept is not None and not accept(node):
                 return []
-            return [self._to_range(node)]
+            return [self._to_range(node, offsets)]
 
         if (node_type in self.parser.REMOVABLE_TYPES
                 and not self._touches(node, executed_lines)):
             if accept is not None and not accept(node):
                 return []
-            return [self._to_range(node)]
+            return [self._to_range(node, offsets)]
 
         collected: List[RemovedRange] = []
         for child in node.children:
             collected.extend(
-                self._find_prunable(child, executed_lines, accept))
+                self._find_prunable(child, executed_lines, accept,
+                                    offsets))
         return collected
 
     @staticmethod
@@ -213,11 +220,12 @@ class CoveragePruner:
         return False
 
     @staticmethod
-    def _to_range(node: Node) -> RemovedRange:
+    def _to_range(node: Node,
+                  offsets: Optional[List[int]] = None) -> RemovedRange:
         return RemovedRange(
             node_type=node.type,
             start_line=node.start_point[0] + 1,
             end_line=node.end_point[0] + 1,
-            start_byte=node.start_byte,
-            end_byte=node.end_byte,
+            start_char=to_char_offset(offsets, node.start_byte),
+            end_char=to_char_offset(offsets, node.end_byte),
         )

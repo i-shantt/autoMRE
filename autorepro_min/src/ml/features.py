@@ -46,6 +46,8 @@ from typing import List, Optional, Sequence, Set, Tuple
 
 from tree_sitter import Node
 
+from parser import byte_to_char_offsets, to_char_offset
+
 
 # Node types common enough in real Python to be worth their own indicator.
 # Anything outside this list falls into the `node_type_other` bucket.
@@ -355,12 +357,17 @@ def _count_references(name: Optional[str], source: str, node: Node) -> int:
     """
     if not name:
         return 0
-    outside = source[:node.start_byte] + source[node.end_byte:]
+    _o = byte_to_char_offsets(source)
+    start = to_char_offset(_o, node.start_byte)
+    end = to_char_offset(_o, node.end_byte)
+    outside = source[:start] + source[end:]
     return len(re.findall(rf"\b{re.escape(name)}\b", outside))
 
 
 def _has_side_effect_token(source: str, node: Node) -> int:
-    text = source[node.start_byte:node.end_byte]
+    _o = byte_to_char_offsets(source)
+    text = source[to_char_offset(_o, node.start_byte):
+                  to_char_offset(_o, node.end_byte)]
     return 1 if any(tok in text for tok in SIDE_EFFECT_TOKENS) else 0
 
 
