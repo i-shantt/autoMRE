@@ -46,7 +46,6 @@ from typing import List, Optional, Sequence, Set, Tuple
 
 from tree_sitter import Node
 
-from parser import byte_to_char_offsets, to_char_offset
 
 
 # Node types common enough in real Python to be worth their own indicator.
@@ -357,17 +356,19 @@ def _count_references(name: Optional[str], source: str, node: Node) -> int:
     """
     if not name:
         return 0
-    _o = byte_to_char_offsets(source)
-    start = to_char_offset(_o, node.start_byte)
-    end = to_char_offset(_o, node.end_byte)
-    outside = source[:start] + source[end:]
+    # Cut in the same units tree-sitter measures in. Slicing the str with
+    # byte offsets silently excluded the wrong region on any file with a
+    # non-ASCII character in it, and building an offset table per node
+    # would make this quadratic for the sake of one slice.
+    data = source.encode("utf-8")
+    outside = (data[:node.start_byte]
+               + data[node.end_byte:]).decode("utf-8", errors="replace")
     return len(re.findall(rf"\b{re.escape(name)}\b", outside))
 
 
 def _has_side_effect_token(source: str, node: Node) -> int:
-    _o = byte_to_char_offsets(source)
-    text = source[to_char_offset(_o, node.start_byte):
-                  to_char_offset(_o, node.end_byte)]
+    # node.text is the node's own bytes, so this needs no offsets at all.
+    text = node.text.decode("utf-8", errors="replace") if node.text else ""
     return 1 if any(tok in text for tok in SIDE_EFFECT_TOKENS) else 0
 
 
