@@ -369,24 +369,48 @@ is discarded and rescanned from the correct state.
 
 Measured on `requests-guess_json_utf`:
 
-| jobs | time | speedup | discarded | throughput | efficiency |
-|-----:|-----:|--------:|----------:|-----------:|-----------:|
-| 1 | 222.2 s | 1.00x | 0 | 1.00x | 100% |
-| 3 | 174.0 s | 1.28x | 379 | 1.67x | 56% |
-| 6 | 166.8 s | **1.33x** | 871 | 2.28x | 38% |
-| 10 | 185.9 s | 1.20x | 1390 | 2.55x | 26% |
+| jobs | time | speedup | discarded |
+|-----:|-----:|--------:|----------:|
+| 1 | 222.2 s | 1.00x | 0 |
+| 3 | 174.0 s | 1.28x | 379 |
+| 6 | 166.8 s | **1.33x** | 871 |
+| 10 | 185.9 s | 1.20x | 1390 |
+
+and on `flask-request_ctx_basic`, where a query costs 490 ms rather than
+196 ms: 1265.2 s → 1166.3 s, **1.08x**, 2803 discarded.
 
 Output and query count are **identical at every worker count** — 1188
-lines and 1223 queries throughout, which is the real evidence that the
-scheme is sound, rather than the unit tests alone.
+lines and 1223 queries throughout for requests, 2482 and 2613 for flask.
+That is the real evidence the scheme is sound, more than the unit tests
+are.
 
-It is a modest win and the honest reading is that it peaks early and
-then turns down. Two costs grow with width: speculation discards the
-tail of a batch whenever a guess is wrong, already 42% of subprocesses
-at six workers, and raw throughput saturates near 2.5x because the ten
-cores are four large and six small. The ceiling here is the acceptance
-rate, not the implementation — a workload where candidates usually fail
-would scale far better, which is exactly the workload C-Reduce has.
+So: a real win, a small one, and it peaks at six workers and then turns
+down. Three things bound it, and they multiply.
+
+*The hardware.* Running N copies of this one pytest command, nothing
+speculative involved:
+
+| workers | 1 | 2 | 4 | 6 | 8 | 10 |
+|---|--:|--:|--:|--:|--:|--:|
+| throughput | 1.00x | 1.85x | 3.11x | 3.42x | 3.43x | 3.90x |
+| efficiency | 100% | 93% | 78% | 57% | 43% | 39% |
+
+Four fast cores and six slow ones, so it is flat past four. No scheduler
+can beat that curve.
+
+*The acceptance rate.* At six workers the chain keeps 58% of what it
+runs on requests and 48% on flask; the rest is thrown away because a
+candidate went the way it was not predicted to. This is the cost of
+speculating at all, and it rises with width.
+
+*Amdahl.* Only the per-unit pass is parallel — 78% of queries. The rest
+of Phase 4b, and Phases 2, 3 and 5, still run one query at a time.
+
+The ceiling is therefore the workload and the machine, not the
+implementation. A box with many equal cores, or a project whose
+candidates usually *fail*, would do much better — the latter being
+exactly the workload C-Reduce speculates for. Worth knowing that free
+cloud runtimes are the wrong direction here: 2–4 vCPU against 10.
 
 The failure mode that mattered was not concurrency but *import
 resolution*. Each worker copy has to be the code under test; a worker
