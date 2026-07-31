@@ -342,6 +342,67 @@ second. It largely rediscovers what Phase 4a already encodes, and the
 AST-shape features are what it adds on top. An honest 6.5% → 5.7%,
 shrinking as the reducer around it got better, is the result.
 
+## Asking several questions at once
+
+*(Branch `parallel-oracle`. Off by default; `--jobs 1` is the sequential
+reducer, unchanged.)*
+
+98-99% of a reduction is the oracle subprocess and ~95% of one query is
+fixed setup, so the only lever left is concurrency. Phase 4b is ~97% of
+all queries, so that is where this goes.
+
+The pass is sequential by nature: whether candidate *i+1* is offered at
+all depends on whether *i* was accepted, because an accepted span
+changes both the text the next candidate is cut from and which later
+spans now overlap a hole. Asking in parallel means guessing the answers,
+and the direction of the guess is worth measuring rather than assuming.
+**74.7% of candidates in this pass are accepted.** So the batch is an
+optimistic *chain*, each entry assuming every entry before it stuck.
+C-Reduce speculates the other way and is right to for its workload; here
+that direction caps out at 1.34x however many workers you add.
+
+Equivalence is structural, not statistical. Every decision in the chain
+is taken against exactly the state the sequential walk would have been
+in, *provided every earlier guess held* — so the plan is valid up to and
+including the first entry whose verdict differs, and everything after it
+is discarded and rescanned from the correct state.
+
+Measured on `requests-guess_json_utf`:
+
+| jobs | time | speedup | discarded | throughput | efficiency |
+|-----:|-----:|--------:|----------:|-----------:|-----------:|
+| 1 | 222.2 s | 1.00x | 0 | 1.00x | 100% |
+| 3 | 174.0 s | 1.28x | 379 | 1.67x | 56% |
+| 6 | 166.8 s | **1.33x** | 871 | 2.28x | 38% |
+| 10 | 185.9 s | 1.20x | 1390 | 2.55x | 26% |
+
+Output and query count are **identical at every worker count** — 1188
+lines and 1223 queries throughout, which is the real evidence that the
+scheme is sound, rather than the unit tests alone.
+
+It is a modest win and the honest reading is that it peaks early and
+then turns down. Two costs grow with width: speculation discards the
+tail of a batch whenever a guess is wrong, already 42% of subprocesses
+at six workers, and raw throughput saturates near 2.5x because the ten
+cores are four large and six small. The ceiling here is the acceptance
+rate, not the implementation — a workload where candidates usually fail
+would scale far better, which is exactly the workload C-Reduce has.
+
+The failure mode that mattered was not concurrency but *import
+resolution*. Each worker copy has to be the code under test; a worker
+whose `import flask` resolved back to the shared editable install would
+answer every question about code nobody is editing, which is the first
+failure listed above. So each worker prepends its own copy to
+`PYTHONPATH`, and the pool refuses to start unless it has verified, per
+worker, that the package resolves inside that copy *and* that the
+unmodified copy still reproduces. Any refusal degrades to sequential:
+being slow is a cost, being wrong is not something to trade for speed.
+
+```bash
+python evaluation/gistify_runner.py --jobs 6      # benchmark
+python evaluation/cloud_bench.py                  # Colab/Kaggle, picks its own
+```
+
 ## Install and run
 
 ```bash

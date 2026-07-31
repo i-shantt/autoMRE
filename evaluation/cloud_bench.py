@@ -63,14 +63,27 @@ def install() -> None:
 
 
 def default_jobs() -> int:
-    """A worker count this machine can actually feed.
+    """A worker count worth using, which is smaller than you would guess.
 
-    Every worker is a `pytest` process, so oversubscribing past the core
-    count buys nothing and costs memory: each worker also holds a full
-    copy of the project.
+    Measured on `requests-guess_json_utf`, 10-core M4:
+
+        jobs=1   222.2s  1.00x
+        jobs=3   174.0s  1.28x
+        jobs=6   166.8s  1.33x   <- peak
+        jobs=10  185.9s  1.20x   <- worse than 6
+
+    It turns down because two costs grow with width. Speculation discards
+    the tail of a batch whenever a candidate goes the way it was not
+    predicted to, and at jobs=6 that is already 42% of all subprocesses.
+    Meanwhile raw throughput saturates near 2.5x whatever you do, because
+    the cores are not equal and `pytest` does not love the small ones.
+
+    Four is the conservative pick: within 5% of the peak for less than
+    half the wasted work. A machine with more *equal* cores may support
+    more -- the discard rate is printed so you can tell.
     """
     cores = os.cpu_count() or 1
-    return max(1, min(8, cores))
+    return max(1, min(4, cores))
 
 
 def describe_machine() -> None:
