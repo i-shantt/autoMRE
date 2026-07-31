@@ -175,6 +175,20 @@ def _ensure_repo(task: GistifyTask, verbose: bool = False) -> Path:
     subprocess.run(
         ["git", "-C", str(repo_dir), "clean", "-fdxq"],
         check=False)
+    # Submodules, when the repo has them. tomlkit's tests/conftest.py globs
+    # tests/toml-test/ from a session-wide pytest_generate_tests hook, so
+    # without this *every* collection in the repo dies with FileNotFoundError
+    # — including test files that never touch the submodule.
+    #
+    # check=False: tomlkit also declares tests/toml-spec-tests, whose upstream
+    # is gone. git reports the failure, initializes the rest, and a task whose
+    # target test does not need the dead submodule still runs. A task that does
+    # need it fails the baseline-health check instead of silently scoring
+    # fidelity on a broken collection.
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "submodule", "update", "--init",
+         "--recursive", "--depth", "1"],
+        check=False, capture_output=not verbose)
     return repo_dir
 
 

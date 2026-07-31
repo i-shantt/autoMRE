@@ -11,8 +11,9 @@ still exhibits the bug.
 
 ## Results
 
-Six pytest tasks across `psf/requests v2.32.3` and `pallets/flask 3.0.3`
-(`evaluation/gistify_tasks.json`), on an M4 MacBook Air:
+Ten pytest tasks across `psf/requests v2.32.3`, `pallets/flask 3.0.3`
+and `python-poetry/tomlkit 0.13.2` (`evaluation/gistify_tasks.json`), on
+an M4 MacBook Air:
 
 | task | lines | reduction | files | queries |
 |------|------:|----------:|:-----:|--------:|
@@ -22,25 +23,54 @@ Six pytest tasks across `psf/requests v2.32.3` and `pallets/flask 3.0.3`
 | requests-cookie_utils        | 11209 → 1193 | 89.4% | 36 → 10 | 1224 |
 | flask-request_ctx_basic      | 17565 → 2482 | 85.9% | 82 → 13 | 2613 |
 | flask-blueprint_registration | 17565 → 1967 | 88.8% | 82 → 17 | 3181 |
+| tomlkit-write_backslash      | 8621 → 840  | 90.3% | 28 → 14 | 2700 |
+| tomlkit-parse_examples       | 8621 → 1090 | 87.4% | 28 → 11 | 2801 |
+| tomlkit-array_items          | 8621 → 1883 | 78.2% | 28 → 14 | 3124 |
+| tomlkit-document_dict        | 8621 → 2419 | 71.9% | 28 → 15 | 4081 |
 
-**88.5% aggregate line reduction, 6/6 execution fidelity.** Raw data in
-`evaluation/results_gistify_charoffsets.json`.
+**86.5% aggregate line reduction, 10/10 execution fidelity.** Raw data
+in `evaluation/results_gistify_threerepo.json`.
+
+`tomlkit` is not one of the paper's repos. It was added so that
+leave-one-repo-out has three folds instead of two, and it was picked to
+have a different shape: a flat package layout rather than `src/`, and
+tests driven by real `.toml` fixture files. It earns its place by
+disagreeing with the other two — see below.
 
 Runs are reproducible: repeated runs of a task are bit-identical, in
 output and in query count, with no pinned hash seed. That is a recent
 property rather than an assumed one — see the fourth entry below.
 
-That headline number undersells the tool, because 79% of what survives
+That headline number undersells the tool, because 68% of what survives
 is the test file, which is deliberately never touched — it is the
 statement of what must remain true. Measured over the code actually
-eligible for removal, reduction is **97.5%**: `psf/requests` goes from
+eligible for removal, reduction is **95.2%**: `psf/requests` goes from
 10,193 reducible lines to 153–177, and `flask-request_ctx_basic` from
 15,515 to 432.
 
-Reduction is the expensive part: ~1770 validation queries per task,
-roughly an hour for all six. Timing every function on the reduction
-path — the validator, the reducer, the parser, the coverage tracer —
-accounts for where that time goes to within half a percent:
+The third repo is where that number is worth reading carefully, because
+it is the only one that disagrees:
+
+| repo | tasks | aggregate | reducible-only | fidelity |
+|---|:-:|---:|---:|:-:|
+| `psf/requests`        | 4 | 89.4% | **98.4%** | 4/4 |
+| `pallets/flask`       | 2 | 87.3% | 96.3% | 2/2 |
+| `python-poetry/tomlkit` | 4 | 81.9% | **90.1%** | 4/4 |
+
+Reduction on tomlkit is 8 points worse than on requests, and the spread
+*within* tomlkit is wider than the spread across all six original tasks
+(84.6% to 93.6%). With two repos the 97.5% looked like a property of the
+method; the third fold says it is partly a property of the codebases the
+method had been pointed at. Nothing was tuned for tomlkit and nothing
+was tuned away from it — the pipeline is byte-identical across all ten
+tasks. This is the single most useful thing the third repo bought, and
+it is an argument for a fourth.
+
+Reduction is the expensive part: ~2330 validation queries per task, and
+the four tomlkit tasks alone took 6.0 hours. Timing every function on
+the reduction path — the validator, the reducer, the parser, the
+coverage tracer — accounts for where that time goes to within half a
+percent:
 
 | | requests-guess_json_utf | flask-request_ctx_basic |
 |---|---:|---:|
@@ -58,6 +88,29 @@ therefore the entire lever — there is no third option and no hot spot
 in the reducer to go find.
 
 Raw per-function timings: `evaluation/profile_reduction_paths.json`.
+
+tomlkit complicates that picture, and the complication is **unresolved**.
+Its four tasks cost 0.58, 0.91, 2.22 and 2.60 seconds per query — a 4.5x
+spread on one repo, one machine, one reducer, with the pipeline
+byte-identical across all four. The smallest repo of the three is by
+some distance the most expensive to reduce.
+
+Two candidate explanations are already ruled out. It is not the cost of
+the target test: on the unreduced tree those same four commands take
+0.14, 0.48, 0.49 and 0.40 s, which is neither the right ordering nor the
+right spread. And it is not simply the per-collection work done by
+tomlkit's `tests/conftest.py` — whose `pytest_generate_tests` hook walks
+and reads all 383 files of a submodule on *every* collected test
+function — because that would make cost track test count, and it
+inverts: `test_api.py` has 137 test functions against `test_items.py`'s
+61, yet costs 0.91 s/query against 2.22.
+
+So the per-query cost of a task is not predicted by either the obvious
+input or the obvious pathology, and one repo now spans a wider range
+than the two-repo gap (196 ms vs 490 ms) that the whole speed analysis
+above was built on. Worth measuring properly before any further speed
+work: the profiler that produced the table above should be pointed at a
+cheap and an expensive tomlkit task.
 
 Breaking down one flask query on the unreduced tree, median of seven:
 11 ms to start the interpreter, 62 ms once `pytest` is imported, 103 ms
@@ -165,7 +218,8 @@ byte from there on.
 its module docstring, and that one character was enough. The import
 statement sliced as `om certifi import where`. The last statement in the
 file began at character 414 of a 427-character string and ended at 428.
-Nine of the 118 `.py` files across the two repos have non-ASCII in them.
+Nine of the 118 `.py` files across requests and flask have non-ASCII in
+them (the bug predates the tomlkit tasks).
 
 Both halves of that cost something, and neither is visible from the
 outside. A mis-sliced candidate is garbage, so the syntax check rejects
@@ -221,6 +275,16 @@ keeps `src/requests/utils.py` with its real BOM-detection body and the
 test with its parametrized assertions, and injecting a bogus `return`
 into `guess_json_utf` makes the reduced test fail.
 
+Re-checked on the new repo, because execution fidelity alone cannot tell
+a real reduction from a gutted test. `tomlkit-write_backslash` was re-run
+with the work tree preserved: it reproduced the benchmark's query count
+exactly (2,700), all four test functions in `tests/test_write.py`
+survived with their assertions, and `_utils.escape_string` — the code
+the target test actually exercises — kept its full body and escape
+tables. 84 of the 115 surviving defs are stubbed to `pass`, which is the
+body-stubbing pass doing its job rather than the reducer emptying the
+thing it is measured on.
+
 ## Pipeline
 
 **Phase 1 — Analysis.** Run the reproduction command once under
@@ -267,7 +331,8 @@ twenty queries.
   unbounded, at equal or better output. Those three were measured
   together on the pre-`PYTHONDONTWRITEBYTECODE` pipeline, so they
   compare fairly with each other but none is the current baseline — the
-  bounded configuration now costs 10,620. Comment stripping keeps the
+  bounded configuration now costs 10,620 over those same six tasks (the
+  ten-task total, with tomlkit, is 23,326). Comment stripping keeps the
   unbounded descent, because it has no per-unit pass behind it and
   singleton probes are the only thing that can isolate one live
   `# noqa`.
@@ -318,6 +383,11 @@ Leave-one-repo-out, so no fold scores a repo it trained on:
 | `psf/requests`  | 4239 | 0.963 |
 | pooled          | 9423 | **0.912** |
 
+These are **two** folds. tomlkit was added to the benchmark after this
+was measured and the oracle has not been retrained, so the third fold
+does not exist yet — and the gap between the two folds that do (0.850
+against 0.963) is exactly the reason a third one matters.
+
 Precision is 95.1% at p>0.9 and **79.5% at p<0.1**. The second number is
 the one that matters, because p<0.1 is what the reducer skips: roughly a
 fifth of skips are wrong, and a wrong skip leaves code that later passes
@@ -329,10 +399,11 @@ lines). That is the wrong trade for this project — complete minimization
 is the goal — so it is **off by default**, behind
 `--use-learned-oracle`.
 
-Both arms of that comparison predate two later fixes. The baseline has
-since moved to 10,620 queries on its own — more than the 670 the oracle
-claimed to save — and the offset fix that got it there also *improved*
-reduction, where the oracle gives lines up. The oracle arm has not been
+Both arms of that comparison predate two later fixes, and both are over
+the original six tasks only. The baseline has since moved to 10,620
+queries on its own — more than the 670 the oracle claimed to save — and
+the offset fix that got it there also *improved* reduction, where the
+oracle gives lines up. The oracle arm has not been
 re-run, so its margin against the current pipeline is unmeasured; on
 those numbers it is likelier to have vanished than merely shrunk.
 
