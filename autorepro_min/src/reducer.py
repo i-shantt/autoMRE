@@ -334,8 +334,26 @@ class HybridDeltaDebugger:
         if self.verbose:
             print("Step 1: Capturing original behavior...")
 
+        # This step exists to supply two things: coverage for
+        # `source_code`, and an original behavior for the validator to
+        # compare against. A caller that already has both — which is
+        # every multi-file reduction, where the project validator holds
+        # the real oracle and Phase 4 hands down real coverage — would
+        # be paying a subprocess for answers that are then discarded.
+        # `_current_executed` prefers `self._executed`, and
+        # ProjectFileValidator consults the project's oracle rather than
+        # the behavior set here, so neither result is ever read. That is
+        # one wasted trace per file under reduction, and one query added
+        # to the reported total for work no oracle did.
+        caller_supplied_both = (
+            executed_lines is not None
+            and self.validator.original_behavior is not None)
+
         if test_command:
             orig_trace = self.tracer.trace_command(test_command, cwd=cwd)
+        elif caller_supplied_both:
+            orig_trace = ExecutionTrace(executed_lines={}, output="",
+                                        return_code=0, success=True)
         else:
             # Try to run the code directly
             orig_trace = self._trace_source(source_code, cwd)
@@ -348,9 +366,10 @@ class HybridDeltaDebugger:
                 original_trace=None
             )
 
-        stats.queries += 1
-        self.validator.set_original_behavior(orig_trace.output,
-                                             0 if orig_trace.success else 1)
+        if not caller_supplied_both:
+            stats.queries += 1
+            self.validator.set_original_behavior(
+                orig_trace.output, 0 if orig_trace.success else 1)
 
         if self.verbose:
             print(f"  Original: {original_lines} lines")

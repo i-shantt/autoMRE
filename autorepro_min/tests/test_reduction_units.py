@@ -231,3 +231,73 @@ def test_halving_confirms_the_union_of_two_removable_halves():
 
     assert _largest_removable_subset(spans, ok) in ([(0, 1)], [(2, 3)])
     assert [(0, 1), (2, 3)] in calls, "union was claimed without a probe"
+
+
+# --------------------------------------------------------------- tracing
+
+class _RecordingTracer:
+    """Stands in for ExecutionTracer and counts what it was asked to do."""
+
+    def __init__(self):
+        self.file_traces = 0
+        self.command_traces = 0
+
+    def trace_python_file(self, file_path, args=None):
+        self.file_traces += 1
+        return self._empty()
+
+    def trace_command(self, command, cwd=None, env=None):
+        self.command_traces += 1
+        return self._empty()
+
+    @staticmethod
+    def _empty():
+        from tracer import ExecutionTrace
+        return ExecutionTrace(executed_lines={}, output="", return_code=0,
+                              success=True)
+
+
+class _SeededValidator(Validator):
+    """A validator that already knows the behavior to preserve."""
+
+    def __init__(self):
+        super().__init__()
+        self.set_original_behavior("original output", 0)
+
+    def validate(self, source_code, command=None, cwd=None):
+        from validator import ValidationResult
+        return ValidationResult(is_valid=False, output="", return_code=1,
+                                matches_original=False, error_type_match=False,
+                                error_message_similarity=0.0)
+
+
+def test_no_standalone_trace_when_the_caller_supplies_coverage_and_oracle():
+    """Phase 4b hands down both; re-deriving them costs a subprocess.
+
+    The trace's coverage loses to `self._executed`, and the behavior it
+    sets is not what ProjectFileValidator compares against, so every
+    file under reduction was paying for two answers that nothing read.
+    """
+    from reducer import HybridDeltaDebugger
+
+    tracer = _RecordingTracer()
+    reducer = HybridDeltaDebugger(tracer=tracer, validator=_SeededValidator())
+    result = reducer.reduce(source_code="A = 1\nB = 2\n",
+                            test_command=None,
+                            executed_lines={1})
+
+    assert tracer.file_traces == 0 and tracer.command_traces == 0
+    assert result.success
+
+
+def test_standalone_trace_still_runs_when_there_is_no_oracle_yet():
+    """The single-file CLI path has neither, and still needs the trace."""
+    from reducer import HybridDeltaDebugger
+
+    tracer = _RecordingTracer()
+    reducer = HybridDeltaDebugger(tracer=tracer, validator=Validator())
+    reducer.reduce(source_code="A = 1\n", test_command=None)
+
+    assert tracer.file_traces == 1, (
+        "without a seeded oracle the trace is the only thing that "
+        "establishes the behavior to preserve")
