@@ -67,6 +67,11 @@ class MultiFileReductionResult:
     oracle_enabled: bool = False
     oracle_skipped_attempts: int = 0   # Phase 4b removals never tried
     oracle_held_back_files: int = 0    # Phase 4a prunes it emptied out
+    # Parallel queries whose answers were thrown away because an earlier
+    # candidate in the batch went the other way. Real subprocess work,
+    # kept out of total_queries so that figure stays comparable with a
+    # sequential run.
+    speculative_discarded: int = 0
 
     @property
     def reducible_reduction_rate(self) -> float:
@@ -121,12 +126,17 @@ class MultiFileDebugger:
                  use_coverage_prune: bool = True,
                  use_learned_oracle: bool = False,
                  oracle_model_path: Optional[Path] = None,
-                 python: Optional[str] = None):
+                 python: Optional[str] = None,
+                 jobs: int = 1):
         self.verbose = verbose
         self.timeout = timeout
         self.match_strategy = match_strategy
         self.use_coverage_prune = use_coverage_prune
         self.python = python
+        # >1 asks Phase 4b's candidates in parallel. Required to produce
+        # the identical result, so it is a runtime knob and nothing else
+        # -- see reducer._speculative_pass and tests/test_speculation.py.
+        self.jobs = max(1, int(jobs))
         self.analyzer = DependencyAnalyzer(python=python)
         self.inliner = ImportInliner(aggressive=aggressive_inline)
         self.coverage_pruner = CoveragePruner()
@@ -334,6 +344,7 @@ class MultiFileDebugger:
         # ------------- Phase 4 — per-file HDD-E under project validation
         self._log("Phase 4: intra-file reduction...")
         per_file_reduction: Dict[Path, tuple] = {}
+        speculative_discarded = 0
         oracle_skipped_attempts = 0
         oracle_held_back_files = 0
         final_survivors = [f for f in analysis.all_files if f.exists()]
@@ -353,89 +364,103 @@ class MultiFileDebugger:
         else:
             fresh_executed = {}
 
-        for f in final_survivors:
-            if f.resolve() in protected:
-                self._log(f"  {f.relative_to(project_dir)}: oracle file, "
-                          "left intact")
-                continue
-            original_source = f.read_text()
-            original_lines = len(original_source.splitlines())
-            # Coverage for this file as it currently stands. Phase 4a may
-            # shift it below; Phase 4b then consumes whatever survives.
-            file_executed: Optional[Set[int]] = (
-                set(fresh_executed.get(f, set()))
-                if self.use_coverage_prune else None)
+        speculator = self._start_speculator(project_dir, test_command,
+                                            validator)
+        try:
+            for f in final_survivors:
+                if f.resolve() in protected:
+                    self._log(f"  {f.relative_to(project_dir)}: oracle file, "
+                              "left intact")
+                    continue
+                original_source = f.read_text()
+                original_lines = len(original_source.splitlines())
+                # Coverage for this file as it currently stands. Phase 4a may
+                # shift it below; Phase 4b then consumes whatever survives.
+                file_executed: Optional[Set[int]] = (
+                    set(fresh_executed.get(f, set()))
+                    if self.use_coverage_prune else None)
 
-            # Phase 4a — coverage-based bulk prune (one query per file
-            # to strip everything HDD-E would otherwise discover as
-            # cold, one wasted query per unit).
-            if self.use_coverage_prune:
-                executed = fresh_executed.get(f, set())
-                prune = self.coverage_pruner.prune_source(
-                    original_source, executed,
-                    accept=self._oracle_accept(original_source, executed, f))
+                # Phase 4a — coverage-based bulk prune (one query per file
+                # to strip everything HDD-E would otherwise discover as
+                # cold, one wasted query per unit).
+                if self.use_coverage_prune:
+                    executed = fresh_executed.get(f, set())
+                    prune = self.coverage_pruner.prune_source(
+                        original_source, executed,
+                        accept=self._oracle_accept(original_source, executed, f))
 
-                # Distinguish "coverage found nothing" from "the oracle
-                # vetoed everything coverage found" — only the second is
-                # the oracle changing the outcome.
-                if self.oracle is not None and not prune.any_removed:
-                    unfiltered = self.coverage_pruner.prune_source(
-                        original_source, executed)
-                    if unfiltered.any_removed:
-                        oracle_held_back_files += 1
-                        self._log(
-                            f"  {f.relative_to(project_dir)}: oracle held "
-                            f"back all {unfiltered.n_removed} coverage "
-                            f"candidates — skipping bulk prune")
+                    # Distinguish "coverage found nothing" from "the oracle
+                    # vetoed everything coverage found" — only the second is
+                    # the oracle changing the outcome.
+                    if self.oracle is not None and not prune.any_removed:
+                        unfiltered = self.coverage_pruner.prune_source(
+                            original_source, executed)
+                        if unfiltered.any_removed:
+                            oracle_held_back_files += 1
+                            self._log(
+                                f"  {f.relative_to(project_dir)}: oracle held "
+                                f"back all {unfiltered.n_removed} coverage "
+                                f"candidates — skipping bulk prune")
 
-                if prune.any_removed:
-                    f.write_text(prune.pruned_source)
-                    queries += 1
-                    if validator.validate():
-                        # The prune stuck, so the file Phase 4b sees is
-                        # renumbered. Shift coverage to match before it
-                        # gets read against the wrong lines.
-                        file_executed = remap_executed_lines(
-                            original_source, prune.removed, executed)
-                        self._log(
-                            f"  {f.relative_to(project_dir)}: "
-                            f"coverage-pruned {prune.n_removed} "
-                            f"uncovered units "
-                            f"({original_lines} -> "
-                            f"{prune.pruned_line_count} lines)")
-                    else:
-                        # Coverage lied — decorator side effect, dynamic
-                        # dispatch, metaclass wiring, etc. Roll back and
-                        # let HDD-E figure it out the slow way.
-                        f.write_text(original_source)
-                        self._log(
-                            f"  {f.relative_to(project_dir)}: coverage "
-                            "prune broke bug — rolled back")
+                    if prune.any_removed:
+                        f.write_text(prune.pruned_source)
+                        queries += 1
+                        if validator.validate():
+                            # The prune stuck, so the file Phase 4b sees is
+                            # renumbered. Shift coverage to match before it
+                            # gets read against the wrong lines.
+                            file_executed = remap_executed_lines(
+                                original_source, prune.removed, executed)
+                            self._log(
+                                f"  {f.relative_to(project_dir)}: "
+                                f"coverage-pruned {prune.n_removed} "
+                                f"uncovered units "
+                                f"({original_lines} -> "
+                                f"{prune.pruned_line_count} lines)")
+                        else:
+                            # Coverage lied — decorator side effect, dynamic
+                            # dispatch, metaclass wiring, etc. Roll back and
+                            # let HDD-E figure it out the slow way.
+                            f.write_text(original_source)
+                            self._log(
+                                f"  {f.relative_to(project_dir)}: coverage "
+                                "prune broke bug — rolled back")
 
-            # Phase 4b — standard intra-file HDD-E on whatever survived.
-            current_source = f.read_text()
-            per_file_validator = ProjectFileValidator(validator, f)
-            reducer = HybridDeltaDebugger(validator=per_file_validator,
-                                          verbose=self.verbose,
-                                          oracle=self.oracle)
-            try:
-                result = reducer.reduce(source_code=current_source,
-                                        test_command=None,
-                                        cwd=project_dir,
-                                        file_path=f,
-                                        executed_lines=file_executed)
-            except Exception as exc:
-                self._log(f"  {f.relative_to(project_dir)}: reduction "
-                          f"errored ({exc}); leaving as-is")
-                continue
+                # Phase 4b — standard intra-file HDD-E on whatever survived.
+                current_source = f.read_text()
+                # Phase 4a may have just rewritten this file, and earlier
+                # files are already reduced; bring the worker copies level
+                # before they answer anything about this one.
+                if speculator is not None:
+                    speculator.sync()
+                per_file_validator = ProjectFileValidator(validator, f)
+                reducer = HybridDeltaDebugger(validator=per_file_validator,
+                                              verbose=self.verbose,
+                                              oracle=self.oracle,
+                                              speculator=speculator)
+                try:
+                    result = reducer.reduce(source_code=current_source,
+                                            test_command=None,
+                                            cwd=project_dir,
+                                            file_path=f,
+                                            executed_lines=file_executed)
+                except Exception as exc:
+                    self._log(f"  {f.relative_to(project_dir)}: reduction "
+                              f"errored ({exc}); leaving as-is")
+                    continue
 
-            queries += result.stats.queries
-            oracle_skipped_attempts += result.stats.oracle_skipped
-            f.write_text(result.minimized_code)
-            final_lines = len(result.minimized_code.splitlines())
-            per_file_reduction[f] = (original_lines, final_lines)
-            self._log(f"  {f.relative_to(project_dir)}: "
-                      f"{original_lines} -> {final_lines} lines")
+                queries += result.stats.queries
+                oracle_skipped_attempts += result.stats.oracle_skipped
+                f.write_text(result.minimized_code)
+                final_lines = len(result.minimized_code.splitlines())
+                per_file_reduction[f] = (original_lines, final_lines)
+                speculative_discarded += result.stats.speculative_discarded
+                self._log(f"  {f.relative_to(project_dir)}: "
+                          f"{original_lines} -> {final_lines} lines")
+
+        finally:
+            if speculator is not None:
+                speculator.close()
 
         # ------------- Phase 5 — sweep for files that only became
         # deletable once Phase 4 removed whatever still imported them.
@@ -476,7 +501,39 @@ class MultiFileDebugger:
             oracle_enabled=self.oracle is not None,
             oracle_skipped_attempts=oracle_skipped_attempts,
             oracle_held_back_files=oracle_held_back_files,
+            speculative_discarded=speculative_discarded,
         )
+
+    def _start_speculator(self, project_dir: Path, test_command: List[str],
+                          validator) -> Optional[object]:
+        """A started ParallelOracle, or None to stay sequential.
+
+        Built here rather than at the top of the run for two reasons: it
+        is the only place that uses it, and by now Phases 2 and 3 have
+        deleted whatever they could, so the copies each worker takes are
+        of the smaller tree.
+
+        Any refusal degrades to sequential rather than raising. Being
+        slow is a cost; being wrong is not something to trade for speed.
+        """
+        if self.jobs < 2:
+            return None
+        try:
+            from .parallel_oracle import ParallelOracle
+        except ImportError as exc:
+            self._log(f"  parallel oracle unavailable ({exc}); "
+                      "continuing sequentially")
+            return None
+
+        speculator = ParallelOracle(project_dir, test_command,
+                                    oracle=validator._oracle,
+                                    timeout=self.timeout, jobs=self.jobs)
+        if not speculator.start():
+            self._log(f"  parallel oracle declined ({speculator.reason}); "
+                      "continuing sequentially")
+            return None
+        self._log(f"  parallel oracle: {self.jobs} verified worker copies")
+        return speculator
 
     # ---------------------------------------------------------- utils
 

@@ -149,6 +149,7 @@ class GistifyResult:
     oracle_enabled: bool = False
     oracle_skipped_attempts: int = 0
     oracle_held_back_files: int = 0
+    speculative_discarded: int = 0
 
 
 # ------------------------------------------------------------ repo mgmt
@@ -373,7 +374,8 @@ def run_task(task: GistifyTask, timeout: int = 120,
              python: Optional[str] = None,
              allow_unhealthy_baseline: bool = False,
              use_learned_oracle: bool = False,
-             oracle_model_path: Optional[str] = None) -> GistifyResult:
+             oracle_model_path: Optional[str] = None,
+             jobs: int = 1) -> GistifyResult:
     python = python or sys.executable
     test_command = _resolve_test_command(task.test_command, python)
     print(f"  → cloning/preparing {task.task_id}...", flush=True)
@@ -463,6 +465,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
             oracle_model_path=(Path(oracle_model_path)
                                if oracle_model_path else None),
             python=python,
+            jobs=jobs,
         )
 
         print(f"  → reducing...", flush=True)
@@ -499,6 +502,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
             oracle_enabled=summary.oracle_enabled,
             oracle_skipped_attempts=summary.oracle_skipped_attempts,
             oracle_held_back_files=summary.oracle_held_back_files,
+            speculative_discarded=summary.speculative_discarded,
         )
 
 
@@ -553,6 +557,11 @@ def main() -> int:
              "attempts using the learned oracle.")
     parser.add_argument("--oracle-model", default=None,
         help="Path to the pickled oracle model.")
+    parser.add_argument("--jobs", type=int, default=1,
+        help="Validate Phase 4b candidates in parallel across N verified "
+             "copies of the project. The result is identical to --jobs 1; "
+             "only runtime changes. Falls back to sequential if a copy "
+             "cannot be verified to import its own code.")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -580,6 +589,7 @@ def main() -> int:
     for task in tasks:
         print(f"[gistify] {task.task_id}", flush=True)
         r = run_task(task, timeout=args.timeout, verbose=args.verbose,
+                     jobs=args.jobs,
                      use_coverage_prune=not args.no_coverage_prune,
                      python=bench_python,
                      allow_unhealthy_baseline=args.allow_unhealthy_baseline,
@@ -602,6 +612,7 @@ def main() -> int:
             "prioritizer": "heuristic",
             "coverage_prune": not args.no_coverage_prune,
             "learned_oracle": args.use_learned_oracle,
+            "jobs": args.jobs,
             "test_interpreter": bench_python,
             "pinned_pytest": (None if (args.python or args.no_venv)
                               else _PINNED_PYTEST),

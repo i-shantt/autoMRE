@@ -210,6 +210,12 @@ class ReductionStats:
     failed_removals: int  # Number of failed unit removals
     oracle_skipped: int = 0  # Attempts the learned oracle declined to make
     syntax_rejected: int = 0  # Candidates rejected locally, no query spent
+    # Queries run in parallel whose answer was thrown away because an
+    # earlier candidate in the same batch decided differently than the
+    # speculation assumed. Real subprocess work, deliberately not counted
+    # in `queries`: `queries` is what the reduction logically asked, and
+    # must stay comparable with a sequential run.
+    speculative_discarded: int = 0
 
     @property
     def reduction_rate(self) -> float:
@@ -256,7 +262,8 @@ class HybridDeltaDebugger:
                  validator: Optional[Validator] = None,
                  verbose: bool = False,
                  oracle: Optional[object] = None,
-                 oracle_skip_threshold: float = 0.1):
+                 oracle_skip_threshold: float = 0.1,
+                 speculator: Optional[object] = None):
         """
         Initialize the reducer.
 
@@ -272,6 +279,10 @@ class HybridDeltaDebugger:
                 leaves that code in the result permanently, because
                 nothing revisits a skipped unit.
             oracle_skip_threshold: p(safe) below which a unit is skipped.
+            speculator: Optional started ParallelOracle. When present the
+                accumulating pass asks several candidates at once. It is
+                required to produce the identical accepted set, so this
+                changes runtime and nothing else.
         """
         self.parser = parser or PythonParser()
         self.tracer = tracer or ExecutionTracer()
@@ -279,6 +290,7 @@ class HybridDeltaDebugger:
         self.verbose = verbose
         self.oracle = oracle
         self.oracle_skip_threshold = oracle_skip_threshold
+        self._speculator = speculator
         # Set per-reduce(); see reduce() for why these exist.
         self._file_path: Optional[Path] = None
         self._executed: Optional[Set[int]] = None
@@ -420,50 +432,9 @@ class HybridDeltaDebugger:
             hopeless = self._oracle_verdicts(candidates, current_code,
                                              orig_trace)
 
-            removed_spans: List[Tuple[int, int]] = []
-            for unit in candidates:
-                span = (unit.start_char, unit.end_char)
-
-                # Skip anything already inside a removed region: its
-                # bytes are gone, so the edit is meaningless and the
-                # overlapping slice would corrupt the source.
-                if _overlaps(span, removed_spans):
-                    continue
-
-                if id(unit) in hopeless:
-                    stats.oracle_skipped += 1
-                    continue
-
-                candidate = _apply_removals(current_code,
-                                            removed_spans + [span])
-
-                # Reject unparseable candidates locally. The oracle here
-                # is a subprocess costing ~170ms; a syntax check costs
-                # microseconds and rejects exactly the same candidates.
-                if not _is_parseable(candidate):
-                    stats.syntax_rejected += 1
-                    continue
-
-                is_valid = self._validate(candidate, test_command, cwd)
-                stats.queries += 1
-
-                # Log against the state the unit was measured in.
-                if self._training_logger is not None:
-                    self._training_logger.log_attempt(
-                        unit=unit,
-                        source=current_code,
-                        executed_lines=self._current_executed(orig_trace),
-                        file_path=self._file_path,
-                        was_safely_removable=is_valid)
-
-                if is_valid:
-                    removed_spans.append(span)
-                    stats.successful_removals += 1
-                    if self.verbose:
-                        print(f"  Removed {unit.node_type} "
-                              f"(L{unit.start_line}-{unit.end_line})")
-                else:
-                    stats.failed_removals += 1
+            removed_spans = self._accumulating_pass(
+                current_code, candidates, hopeless, orig_trace,
+                test_command, cwd, stats)
 
             if not removed_spans:
                 break
@@ -523,6 +494,193 @@ class HybridDeltaDebugger:
             stats=stats,
             original_trace=orig_trace
         )
+
+    # ------------------------------------------------- accumulating pass
+
+    def _accumulating_pass(self, current_code: str,
+                           candidates: List[CodeUnit],
+                           hopeless: Set[int],
+                           trace: ExecutionTrace,
+                           test_command, cwd, stats) -> List[Tuple[int, int]]:
+        """Walk every candidate once, keeping the removals that stick.
+
+        Dispatches to the speculative walk when a parallel oracle is
+        available. The two are required to return the same list — see
+        `_speculative_pass` for why that is guaranteed rather than hoped
+        for, and tests/test_speculation.py for the check.
+        """
+        if self._speculator is not None and self._speculator.enabled:
+            return self._speculative_pass(current_code, candidates, hopeless,
+                                          trace, test_command, cwd, stats)
+        return self._sequential_pass(current_code, candidates, hopeless,
+                                     trace, test_command, cwd, stats)
+
+    def _sequential_pass(self, current_code, candidates, hopeless, trace,
+                         test_command, cwd, stats) -> List[Tuple[int, int]]:
+        removed_spans: List[Tuple[int, int]] = []
+        for unit in candidates:
+            span = (unit.start_char, unit.end_char)
+
+            # Skip anything already inside a removed region: its bytes are
+            # gone, so the edit is meaningless and the overlapping slice
+            # would corrupt the source.
+            if _overlaps(span, removed_spans):
+                continue
+
+            if id(unit) in hopeless:
+                stats.oracle_skipped += 1
+                continue
+
+            candidate = _apply_removals(current_code, removed_spans + [span])
+
+            # Reject unparseable candidates locally. The oracle here is a
+            # subprocess costing ~170ms; a syntax check costs microseconds
+            # and rejects exactly the same candidates.
+            if not _is_parseable(candidate):
+                stats.syntax_rejected += 1
+                continue
+
+            is_valid = self._validate(candidate, test_command, cwd)
+            stats.queries += 1
+
+            # Log against the state the unit was measured in.
+            if self._training_logger is not None:
+                self._training_logger.log_attempt(
+                    unit=unit,
+                    source=current_code,
+                    executed_lines=self._current_executed(trace),
+                    file_path=self._file_path,
+                    was_safely_removable=is_valid)
+
+            if is_valid:
+                removed_spans.append(span)
+                stats.successful_removals += 1
+                if self.verbose:
+                    print(f"  Removed {unit.node_type} "
+                          f"(L{unit.start_line}-{unit.end_line})")
+            else:
+                stats.failed_removals += 1
+        return removed_spans
+
+    def _speculative_pass(self, current_code, candidates, hopeless, trace,
+                          test_command, cwd, stats) -> List[Tuple[int, int]]:
+        """The same walk, asking several questions at once.
+
+        The pass is sequential by nature: whether candidate *i+1* is even
+        offered depends on whether *i* was accepted, because an accepted
+        span changes both the source the next candidate is cut from and
+        which later spans now overlap a hole. To ask in parallel you must
+        guess the answers, and the guess decides the payoff.
+
+        Measured on the benchmark, **74.7% of candidates in this pass are
+        accepted**. So the guess is "accepted", and the batch is a *chain*:
+        each entry assumes every entry before it stuck. C-Reduce
+        speculates the other way, assuming candidates fail, which is right
+        for its workload and wrong for this one — assuming failure here
+        would cap the speedup at 1.34x however many workers you add,
+        against 3.6x for this direction at eight.
+
+        Equivalence with the sequential walk is structural, not
+        statistical. Every decision in the chain is taken against exactly
+        the state the sequential walk would have been in, *provided* every
+        earlier guess held. So the plan is valid up to and including the
+        first entry whose verdict differs from the guess; everything after
+        that is discarded and rescanned from the correct state. The
+        accepted set is therefore identical, and so is the query count —
+        `speculative_discarded` records the extra subprocess work, which
+        is the price paid, and is reported separately rather than hidden
+        inside `queries`.
+        """
+        from multi_file.parallel_oracle import Candidate
+
+        width = max(2, self._speculator.jobs)
+        relative = self._speculator.relative_path(self._file_path)
+
+        removed_spans: List[Tuple[int, int]] = []
+        index = 0
+        while index < len(candidates):
+            # Build the chain, assuming each queued candidate is accepted.
+            # `plan` records every decision, not just the queries, so the
+            # bookkeeping below can be replayed exactly once.
+            plan: List[Tuple[str, int, Optional[Tuple[int, int]],
+                             Optional[str]]] = []
+            trial = list(removed_spans)
+            scan = index
+            queued = 0
+            while scan < len(candidates) and queued < width:
+                unit = candidates[scan]
+                span = (unit.start_char, unit.end_char)
+                position = scan
+                scan += 1
+
+                if _overlaps(span, trial):
+                    plan.append(("overlap", position, None, None))
+                    continue
+                if id(unit) in hopeless:
+                    plan.append(("oracle", position, None, None))
+                    continue
+                candidate = _apply_removals(current_code, trial + [span])
+                if not _is_parseable(candidate):
+                    plan.append(("syntax", position, None, None))
+                    continue
+
+                plan.append(("query", position, span, candidate))
+                trial = trial + [span]
+                queued += 1
+
+            asked = [step for step in plan if step[0] == "query"]
+            if not asked:
+                break
+
+            verdicts = self._speculator.ask(
+                [Candidate(path=relative, source=step[3]) for step in asked])
+
+            # Replay the plan against the real answers, stopping at the
+            # first place the guess was wrong.
+            verdict_iter = iter(verdicts)
+            used = 0
+            broke_at: Optional[int] = None
+            for kind, position, span, _source in plan:
+                if kind == "overlap":
+                    continue
+                if kind == "oracle":
+                    stats.oracle_skipped += 1
+                    continue
+                if kind == "syntax":
+                    stats.syntax_rejected += 1
+                    continue
+
+                is_valid = next(verdict_iter)
+                used += 1
+                stats.queries += 1
+
+                if self._training_logger is not None:
+                    unit = candidates[position]
+                    self._training_logger.log_attempt(
+                        unit=unit,
+                        source=current_code,
+                        executed_lines=self._current_executed(trace),
+                        file_path=self._file_path,
+                        was_safely_removable=is_valid)
+
+                if is_valid:
+                    removed_spans.append(span)
+                    stats.successful_removals += 1
+                    if self.verbose:
+                        unit = candidates[position]
+                        print(f"  Removed {unit.node_type} "
+                              f"(L{unit.start_line}-{unit.end_line})")
+                else:
+                    stats.failed_removals += 1
+                    # The chain assumed this one stuck. Everything after
+                    # it was cut from a source that does not exist.
+                    broke_at = position
+                    break
+
+            stats.speculative_discarded += len(asked) - used
+            index = scan if broke_at is None else broke_at + 1
+
+        return removed_spans
 
     def _get_units(self, source_code: str, trace: ExecutionTrace) -> List[CodeUnit]:
         """Get removable units from source code."""
