@@ -38,30 +38,42 @@ eligible for removal, reduction is **97.4%**: `psf/requests` goes from
 15,515 to 432.
 
 Reduction is the expensive part: ~1850 validation queries per task,
-about 53 minutes for all six. Where that time goes depends on the repo,
-and not in the way this section used to claim. Instrumenting the
-validator to separate subprocess time from the reducer's own:
+about 53 minutes for all six. Timing every function on the reduction
+path — the validator, the reducer, the parser, the coverage tracer —
+accounts for where that time goes to within half a percent:
 
 | | requests-guess_json_utf | flask-request_ctx_basic |
 |---|---:|---:|
-| reduction wall | 215.9 s | 1127.8 s |
-| in the subprocess | 212.0 s (**98.2%**) | 401.3 s (**35.6%**) |
-| mean per subprocess | 160.7 ms | 154.0 ms |
-| reducer's own work | 2.9 ms/query | 275.8 ms/query |
+| reduction wall | 262.2 s | 1288.5 s |
+| in the oracle subprocess | 258.0 s (**98.4%**) | 1281.4 s (**99.4%**) |
+| in the coverage tracer | — | 5.3 s (0.4%) |
+| mean per subprocess | 195.6 ms | 490.6 ms |
+| everything else | 3.19 ms/query | 0.69 ms/query |
 
-A single query costs about the same on both repos — the reproduction
-command does not care how big the tree around it is. What changes by
-two orders of magnitude is the reducer's own per-query work, and on
-flask that is *two thirds of the run*. Asking fewer questions is
-therefore the only lever that matters on requests and a minor one on
-flask, where the reducer is its own bottleneck. That is a profiling
-target, not a query-count target, and it is currently unprofiled.
+The reducer's own work is a rounding error on both repos. What differs
+is the price of a single question: 490 ms on flask against 196 ms on
+requests, because every query pays a fresh interpreter start and a
+fresh `import flask`. Asking fewer questions, or making one cheaper, is
+therefore the entire lever — there is no third option and no hot spot
+in the reducer to go find.
+
+Raw per-function timings: `evaluation/profile_reduction_paths.json`.
+
+Two caveats on that table. It is one run per repo, so the millisecond
+figures carry ordinary machine-load noise; the shares do not, since
+they are internal ratios. And an earlier revision of this section
+reported the flask column as 35.6% subprocess and blamed a superlinear
+defect in the reducer — that measurement left 64% of the run
+unexplained, which was reason to distrust it rather than to publish it.
+See the fifth entry below.
 
 ## Why these numbers are trustworthy
 
 A minimizer is easy to fool, including by accident. Four earlier
-versions of this benchmark reported numbers that were wrong, and each
-failure is worth stating because it shapes how the tool is now built.
+versions of this benchmark reported reduction numbers that were wrong,
+and a fifth entry covers a performance measurement that was wrong. Each
+is worth stating because it shapes how the tool is now built and how it
+is now measured.
 
 **The reduced code was never under test.** Both target repos use a
 `src/` layout, and the harness installed the *cache* checkout, so
@@ -132,6 +144,30 @@ moved was the query count, down 4.7%, because false rejections had been
 forcing wasted re-subdivision. Its cost was correctness and
 reproducibility rather than headline numbers, which is exactly why it
 survived three rounds of auditing the headline numbers.
+
+**The profile blamed the reducer, and the profile was the thing that was
+broken.** The four above are all defects in the tool. This one is a
+defect in a measurement of it, recorded here because the failure mode is
+the more common of the two. Instrumenting only `MultiFileValidator._run`
+and subtracting from wall time attributed 64% of the flask run to the
+reducer's own work — a striking 275 ms per query against 2.9 ms on
+requests, superlinear in tree size, textbook algorithmic defect. It was
+written up as one, in this file.
+
+There is no such defect. Timing the whole reduction path instead of one
+function puts flask at 99.4% subprocess with a 0.1% residual. The
+earlier figure was a subprocess total that covered part of a run divided
+by a wall time and a query count that covered all of it. The tell was
+there in the original table and went unread: flask's mean query came out
+*cheaper* than requests' (154 ms against 160 ms), which cannot be true
+when the query is `import flask` versus `import requests`. It is
+actually 490 ms against 196 ms.
+
+Two habits come out of this. Account for the whole of an interval before
+believing a subtraction — an unexplained majority is a broken
+measurement until shown otherwise, not a finding. And a correction is a
+claim like any other: this one overturned a *correct* statement about
+where the time went, and cost more than the error it was fixing.
 
 **The check that catches the first three is a vacuity probe, not a size
 assertion.** Size cannot distinguish a good reduction from a destroyed
