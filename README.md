@@ -59,6 +59,15 @@ in the reducer to go find.
 
 Raw per-function timings: `evaluation/profile_reduction_paths.json`.
 
+Breaking down one flask query on the unreduced tree, median of seven:
+11 ms to start the interpreter, 62 ms once `pytest` is imported, 103 ms
+once `flask` is too, 202 ms after collection — and 212 ms to actually
+run the test. **The test body is about 5% of the query.** The other 95%
+is identical work repeated 2,612 times. That makes a persistent worker
+the obvious idea and also a dangerous one: reusing a process means
+reusing `sys.modules`, which is the stale-bytecode failure again in a
+form that `PYTHONDONTWRITEBYTECODE` cannot fix. Not attempted.
+
 Two caveats on that table. It is one run per repo, so the millisecond
 figures carry ordinary machine-load noise; the shares do not, since
 they are internal ratios. And an earlier revision of this section
