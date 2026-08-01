@@ -501,11 +501,17 @@ automre/src/
     coverage_pruner.py        Phase 4a
     multi_file_debugger.py    orchestrator + oracle-file protection
   ml/                       learned removability oracle (optional extra)
-  tests/                    soundness, vacuity, and unit tests
+automre/tests/              soundness, vacuity, and unit tests
+automre.py                  convenience shim; see the note above on why
+                            `python3 -m automre.src.cli` fails beside it
 evaluation/
   gistify_runner.py         benchmark harness
   gistify_tasks.json        10-task manifest (requests, flask, tomlkit)
+  cloud_bench.py            same harness for Colab/Kaggle, plus the
+                            --ablation coverage-prune A/B
   results_gistify_*.json    results per configuration
+notebooks/
+  automre_benchmark.ipynb   driver for cloud_bench.py on a hosted GPU/CPU
 ```
 
 ## Comparison to Gistify
