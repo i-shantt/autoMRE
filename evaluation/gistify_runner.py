@@ -86,8 +86,34 @@ def _ensure_bench_python(verbose: bool = False) -> str:
 
     print(f"  provisioning benchmark venv at {_BENCH_VENV.name} "
           f"({', '.join(_BENCH_REQUIREMENTS)})...", flush=True)
-    subprocess.run([sys.executable, "-m", "venv", str(_BENCH_VENV)],
-                   check=True)
+    # NEVER pass --system-site-packages here, whatever an environment's
+    # ensurepip is doing. Colab and Kaggle ship `requests` and `flask`
+    # preinstalled, and a bench venv that can see them turns every
+    # deletion into a no-op the instant the reducer removes the work
+    # copy's own package: the editable install stops resolving and the
+    # import falls through to the host's copy, which nobody is editing.
+    # A run patched that way scored 6/6 fidelity while deleting flask
+    # down to its test file in 56 queries. The isolation is the point of
+    # the venv, not a detail of it.
+    proc = subprocess.run([sys.executable, "-m", "venv", str(_BENCH_VENV)],
+                          capture_output=True, text=True)
+    if proc.returncode != 0:
+        # Some hosted runtimes ship a broken ensurepip. Build the venv
+        # without pip and bootstrap it, rather than reaching for
+        # --system-site-packages to make the error go away.
+        print("    venv+ensurepip failed; retrying without pip and "
+              "bootstrapping it", flush=True)
+        shutil.rmtree(_BENCH_VENV, ignore_errors=True)
+        subprocess.run([sys.executable, "-m", "venv", "--without-pip",
+                        str(_BENCH_VENV)], check=True)
+        boot = subprocess.run([str(py), "-m", "ensurepip", "--upgrade"],
+                              capture_output=True, text=True)
+        if boot.returncode != 0:
+            import urllib.request
+            getpip = _BENCH_VENV / "get-pip.py"
+            urllib.request.urlretrieve(
+                "https://bootstrap.pypa.io/get-pip.py", getpip)
+            subprocess.run([str(py), str(getpip)], check=True)
     subprocess.run([str(py), "-m", "pip", "install", "--quiet",
                     "--upgrade", "pip"], check=False)
     proc = subprocess.run(
@@ -288,6 +314,63 @@ def _imports_resolve_to_work_copy(work_dir: Path,
 
 # ------------------------------------------------------------ eval
 
+def _work_copy_not_authoritative(work_dir: Path, cmd: List[str],
+                                 baseline_rc: int,
+                                 timeout: int) -> Optional[str]:
+    """Positive control: remove the code and require the test to notice.
+
+    `_imports_resolve_to_work_copy` asks where a package resolves *before*
+    reduction starts, and that is not the same question. An editable
+    install can resolve to the work copy at baseline and then silently
+    fall through to another copy the moment the reducer deletes the
+    package's files — which is exactly when it matters, and exactly the
+    shape of failure that has now cost this benchmark two audits.
+
+    So instead of inspecting paths, reproduce the reducer's own most
+    destructive move: rename the package directory aside, run the
+    reproduction command, and require it to stop passing. A tree that
+    still reproduces the bug with its implementation missing is not being
+    measured, and every reduction number from it is meaningless.
+
+    Renaming rather than editing is deliberate. Appending `raise` to
+    `__init__.py` would prove nothing: the file still exists, so the
+    import never falls back, and the check would pass on precisely the
+    setup it is meant to catch.
+    """
+    packages = _top_level_packages(work_dir)
+    if not packages:
+        return None
+
+    checked = []
+    for pkg in packages:
+        pkg_dir = next((root / pkg for root in (work_dir, work_dir / "src")
+                        if (root / pkg).is_dir()), None)
+        if pkg_dir is None:
+            continue
+        hidden = pkg_dir.with_name(pkg_dir.name + ".autorepro_sabotage")
+        pkg_dir.rename(hidden)
+        try:
+            _purge_bytecode(work_dir)
+            try:
+                proc = subprocess.run(cmd, cwd=work_dir, capture_output=True,
+                                      text=True, timeout=timeout)
+                still_reproduces = (proc.returncode == baseline_rc)
+            except subprocess.TimeoutExpired:
+                still_reproduces = False
+        finally:
+            hidden.rename(pkg_dir)
+            _purge_bytecode(work_dir)
+        checked.append(pkg)
+        if not still_reproduces:
+            return None  # removing the code broke the test: it is under test
+
+    if not checked:
+        return None
+    return (f"removing {'/'.join(checked)} entirely did not change the "
+            f"result — the reproduction command is not running the code in "
+            f"the work copy, so any reduction measured here is vacuous")
+
+
 def _capture_baseline(work_dir: Path, cmd: List[str],
                       timeout: int) -> tuple:
     try:
@@ -467,6 +550,20 @@ def run_task(task: GistifyTask, timeout: int = 120,
         print(f"  → baseline ok (rc={baseline_rc}); "
               f"repo has {orig_files} .py files, "
               f"{orig_lines} lines", flush=True)
+
+        print(f"  → positive control (removing the code must break the "
+              f"test)...", flush=True)
+        vacuous = _work_copy_not_authoritative(
+            work_dir, test_command, baseline_rc, timeout)
+        if vacuous and not allow_unhealthy_baseline:
+            print(f"  → SKIP: {vacuous}", flush=True)
+            return GistifyResult(
+                task_id=task.task_id, execution_fidelity=0,
+                original_files=orig_files, final_files=orig_files,
+                original_lines=orig_lines, final_lines=orig_lines,
+                single_file_output=False,
+                total_queries=0, time_seconds=0.0,
+                error=f"work copy not under test: {vacuous}")
 
         debugger = MultiFileDebugger(
             verbose=verbose, timeout=timeout,
