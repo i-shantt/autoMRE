@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Automated Bug Reproduction Minimization
+autoMRE: Automated Bug Reproduction Minimization
 
 A Python tool for automatically minimizing bug-triggering code while
 preserving reproduction capability using hybrid delta debugging.
@@ -11,7 +11,7 @@ Based on research in:
 """
 
 __version__ = "0.1.0"
-__author__ = "AutoRepro-Min Research Project"
+__author__ = "autoMRE Research Project"
 
 from .parser import PythonParser, CodeUnit
 from .tracer import ExecutionTracer, ExecutionTrace

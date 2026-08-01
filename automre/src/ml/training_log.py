@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Learned Removability Oracle
+autoMRE: Learned Removability Oracle
 Training Data Capture
 
 Records one JSONL row per Phase 4b removal attempt so the oracle can be
@@ -18,15 +18,15 @@ model the wrong thing. So 4a stays uninstrumented.
 
 Activation
 ----------
-Off unless AUTOREPRO_TRAINING_LOG names a file. That keeps a normal
+Off unless AUTOMRE_TRAINING_LOG names a file. That keeps a normal
 reduction free of logging cost and stops the reducer from depending on
 anything in this package at runtime.
 
 Companion env vars, both optional and used only to tag rows so
 leave-one-repo-out CV can group them:
 
-    AUTOREPRO_TASK_ID     benchmark task the row came from
-    AUTOREPRO_REPO_SLUG   repo the task belongs to
+    AUTOMRE_TASK_ID     benchmark task the row came from
+    AUTOMRE_REPO_SLUG   repo the task belongs to
 
 Rows append, so a generator script can point many reducer runs at one
 file and concatenate naturally.
@@ -39,9 +39,9 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
-TRAINING_LOG_ENV = "AUTOREPRO_TRAINING_LOG"
-TASK_ID_ENV = "AUTOREPRO_TASK_ID"
-REPO_SLUG_ENV = "AUTOREPRO_REPO_SLUG"
+TRAINING_LOG_ENV = "AUTOMRE_TRAINING_LOG"
+TASK_ID_ENV = "AUTOMRE_TASK_ID"
+REPO_SLUG_ENV = "AUTOMRE_REPO_SLUG"
 
 
 class TrainingLogger:
@@ -58,7 +58,7 @@ class TrainingLogger:
 
     @classmethod
     def from_env(cls) -> Optional["TrainingLogger"]:
-        """Build a logger if AUTOREPRO_TRAINING_LOG is set, else None."""
+        """Build a logger if AUTOMRE_TRAINING_LOG is set, else None."""
         target = os.environ.get(TRAINING_LOG_ENV)
         if not target:
             return None

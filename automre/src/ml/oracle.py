@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Learned Removability Oracle
+autoMRE: Learned Removability Oracle
 Training and Inference
 
 Trains a gradient-boosted classifier on the Phase 4b attempt log and

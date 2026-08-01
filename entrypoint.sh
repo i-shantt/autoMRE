@@ -1,5 +1,5 @@
 #!/bin/bash
-# AutoRepro-Min: Automated Bug Reproduction Minimization
+# autoMRE: Automated Bug Reproduction Minimization
 # Entrypoint script for full reproduction of all results
 # Usage: ./entrypoint.sh [command]
 
@@ -13,7 +13,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_NAME="AutoRepro-Min"
+PROJECT_NAME="autoMRE"
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}  $PROJECT_NAME - Reproduction Script${NC}"
@@ -65,7 +65,7 @@ run_tests() {
     cd "$SCRIPT_DIR"
 
     # Set PYTHONPATH to include the src directory so modules can import each other
-    export PYTHONPATH="$SCRIPT_DIR/autorepro_min/src"
+    export PYTHONPATH="$SCRIPT_DIR/automre/src"
 
     # Test parser
     echo "  Testing parser..."
@@ -112,7 +112,7 @@ run_example() {
     print_section "Running example reduction..."
     cd "$SCRIPT_DIR"
 
-    EXAMPLE_DIR="autorepro_min/examples/simple_single_file"
+    EXAMPLE_DIR="automre/examples/simple_single_file"
     ORIGINAL="$EXAMPLE_DIR/bug_original.py"
     MINIMIZED="$EXAMPLE_DIR/bug_output.py"
 
@@ -120,7 +120,7 @@ run_example() {
     echo "  Lines in original: $(wc -l < $ORIGINAL)"
 
     # Run reduction
-    python3 autorepro_min.py reduce "$ORIGINAL" -o "$MINIMIZED" -v
+    python3 automre.py reduce "$ORIGINAL" -o "$MINIMIZED" -v
 
     if [ -f "$MINIMIZED" ]; then
         echo "  Lines in minimized: $(wc -l < $MINIMIZED)"
@@ -136,7 +136,7 @@ run_evaluation() {
     cd "$SCRIPT_DIR"
 
     EVAL_DIR="evaluation"
-    EXAMPLES_DIR="autorepro_min/examples/simple_single_file"
+    EXAMPLES_DIR="automre/examples/simple_single_file"
 
     # Run comparison of all algorithms
     echo "  Comparing all algorithms..."

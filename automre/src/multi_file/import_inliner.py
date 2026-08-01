@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Multi-File Reduction
+autoMRE: Multi-File Reduction
 Import Inliner (Phase 3 — Selective Inlining)
 
 Given a target file F and the set of files that import it, copy the

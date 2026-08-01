@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Multi-File Reduction
+autoMRE: Multi-File Reduction
 Whole-Project Validator
 
 Runs a reproduction command against a full project directory and compares

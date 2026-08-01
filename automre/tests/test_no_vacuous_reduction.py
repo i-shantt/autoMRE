@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(_ROOT / "autorepro_min" / "src"))
+sys.path.insert(0, str(_ROOT / "automre" / "src"))
 
 from multi_file import MultiFileDebugger  # noqa: E402
 

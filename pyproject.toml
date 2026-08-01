@@ -3,13 +3,13 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "autorepro-min"
+name = "automre"
 version = "0.3.0"
 description = "Multi-file bug reproduction minimization via coverage-guided empirical delta debugging."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
-authors = [{name = "AutoRepro-Min contributors"}]
+authors = [{name = "autoMRE contributors"}]
 keywords = ["delta-debugging", "bug-reproduction", "minimization", "coverage", "code-analysis"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -43,11 +43,11 @@ oracle = [
 ]
 
 [project.scripts]
-autorepro-min = "autorepro_min.src.cli:main"
+automre = "automre.src.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["autorepro_min*"]
+include = ["automre*"]
 
 [tool.setuptools.package-data]
-"autorepro_min" = ["examples/**/*"]
+"automre" = ["examples/**/*"]

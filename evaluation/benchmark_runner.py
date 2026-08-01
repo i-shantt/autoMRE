@@ -1,8 +1,8 @@
 """
-AutoRepro-Min: Automated Bug Reproduction Minimization
+autoMRE: Automated Bug Reproduction Minimization
 BugsInPy Benchmark Runner
 
-Runs AutoRepro-Min on the BugsInPy benchmark and collects results.
+Runs autoMRE on the BugsInPy benchmark and collects results.
 
 Based on:
 - Widyasari et al. (2024): BugsInPy benchmark
@@ -17,7 +17,7 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'autorepro_min' / 'src'))
+sys.path.insert(0, str(Path(__file__).parent.parent / 'automre' / 'src'))
 sys.path.insert(0, str(Path(__file__).parent))
 
 from parser import PythonParser
@@ -323,7 +323,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description='Run AutoRepro-Min on BugsInPy benchmark'
+        description='Run autoMRE on BugsInPy benchmark'
     )
     parser.add_argument('--bugsinpy', required=True,
                        help='Path to BugsInPy repository')

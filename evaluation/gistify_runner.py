@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Gistify-Style Benchmark Runner
+autoMRE: Gistify-Style Benchmark Runner
 
 Runs `reduce-project` on real repositories from the Gistify benchmark
 (Lee et al., ICLR 2026, arXiv 2510.26790).
@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 _ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_ROOT / "autorepro_min" / "src"))
+sys.path.insert(0, str(_ROOT / "automre" / "src"))
 sys.path.insert(0, str(_ROOT / "evaluation"))
 
 from multi_file import MultiFileDebugger  # noqa: E402
@@ -221,7 +221,7 @@ def _ensure_repo(task: GistifyTask, verbose: bool = False) -> Path:
 def _install_repo(repo_dir: Path, python: str,
                   verbose: bool = False) -> bool:
     """`pip install -e .` the checked-out repo into the benchmark env."""
-    stamp = repo_dir / ".autorepro_installed"
+    stamp = repo_dir / ".automre_installed"
     if stamp.exists():
         return True
     if verbose:
@@ -347,7 +347,7 @@ def _work_copy_not_authoritative(work_dir: Path, cmd: List[str],
                         if (root / pkg).is_dir()), None)
         if pkg_dir is None:
             continue
-        hidden = pkg_dir.with_name(pkg_dir.name + ".autorepro_sabotage")
+        hidden = pkg_dir.with_name(pkg_dir.name + ".automre_sabotage")
         pkg_dir.rename(hidden)
         try:
             _purge_bytecode(work_dir)
@@ -637,7 +637,7 @@ def summarize(results: List[GistifyResult]) -> Dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Gistify-style benchmark harness for AutoRepro-Min.")
+        description="Gistify-style benchmark harness for autoMRE.")
     parser.add_argument("--tasks", default=str(
         _ROOT / "evaluation" / "gistify_tasks.json"),
         help="Path to a tasks JSON manifest")

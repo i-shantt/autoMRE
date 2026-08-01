@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Automated Bug Reproduction Minimization
+autoMRE: Automated Bug Reproduction Minimization
 Validator Module
 
 This module validates whether a minimized test case still reproduces

@@ -1,9 +1,9 @@
 """
-AutoRepro-Min: Learned Removability Oracle
+autoMRE: Learned Removability Oracle
 Training Data Generation
 
 Runs the full reduction pipeline over every task in
-`oracle_training_tasks.json` with AUTOREPRO_TRAINING_LOG set, so each
+`oracle_training_tasks.json` with AUTOMRE_TRAINING_LOG set, so each
 Phase 4b removal attempt appends a labelled row to one JSONL file.
 
 The labels are observations, not annotations: the reducer removes a unit,
@@ -40,7 +40,7 @@ from dataclasses import asdict
 from typing import List, Optional
 
 _ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_ROOT / "autorepro_min" / "src"))
+sys.path.insert(0, str(_ROOT / "automre" / "src"))
 sys.path.insert(0, str(_ROOT / "evaluation"))
 
 from gistify_runner import (  # noqa: E402

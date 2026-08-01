@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Learned Removability Oracle
+autoMRE: Learned Removability Oracle
 Feature Extraction
 
 Turns one tree-sitter node into a fixed-width numeric vector describing

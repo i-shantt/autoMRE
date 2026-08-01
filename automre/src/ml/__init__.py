@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Learned Removability Oracle
+autoMRE: Learned Removability Oracle
 
 A small gradient-boosted classifier that predicts whether a given code
 unit can be safely removed without breaking the target test. Used as a

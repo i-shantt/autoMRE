@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Automated Bug Reproduction Minimization
+autoMRE: Automated Bug Reproduction Minimization
 AST Parser Module
 
 This module provides Python AST parsing capabilities using tree-sitter

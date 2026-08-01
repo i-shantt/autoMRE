@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Multi-File Reduction Subpackage
+autoMRE: Multi-File Reduction Subpackage
 
 Implements MF-HDD-E (Multi-File Hierarchical Delta Debugging with
 Execution Guidance): extends the single-file HDD-E algorithm to whole

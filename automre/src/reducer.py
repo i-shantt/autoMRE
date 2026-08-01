@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Automated Bug Reproduction Minimization
+autoMRE: Automated Bug Reproduction Minimization
 Reducer Module
 
 This module implements the Hybrid Delta Debugging algorithm (HDD-E):
@@ -282,7 +282,7 @@ class HybridDeltaDebugger:
         # Set per-reduce(); see reduce() for why these exist.
         self._file_path: Optional[Path] = None
         self._executed: Optional[Set[int]] = None
-        # Only non-None when AUTOREPRO_TRAINING_LOG is set, so a normal
+        # Only non-None when AUTOMRE_TRAINING_LOG is set, so a normal
         # reduction pays nothing and the core reducer keeps working even
         # if the optional ml/ package is absent.
         self._training_logger = _make_training_logger()

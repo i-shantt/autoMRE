@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Automated Bug Reproduction Minimization
+autoMRE: Automated Bug Reproduction Minimization
 Evaluation Metrics Module
 
 Implements metrics for evaluating reduction quality:

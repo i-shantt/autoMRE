@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Multi-File Reduction
+autoMRE: Multi-File Reduction
 Dependency Analyzer (Phase 1 — Cross-File Reconnaissance)
 
 Responsibilities:

@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Multi-File Reduction
+autoMRE: Multi-File Reduction
 Coverage-Based Pruner
 
 Bulk-removes definitions from a file whose lines were never executed

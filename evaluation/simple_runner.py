@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Automated Bug Reproduction Minimization
+autoMRE: Automated Bug Reproduction Minimization
 Simple Evaluation Runner
 
 Runs evaluation on example bugs for demonstration.
@@ -11,7 +11,7 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'autorepro_min' / 'src'))
+sys.path.insert(0, str(Path(__file__).parent.parent / 'automre' / 'src'))
 sys.path.insert(0, str(Path(__file__).parent))
 
 from parser import PythonParser
@@ -198,7 +198,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description='Run AutoRepro-Min evaluation on example bugs'
+        description='Run autoMRE evaluation on example bugs'
     )
     parser.add_argument('--examples', required=True,
                        help='Directory containing example bugs')

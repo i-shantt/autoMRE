@@ -1,9 +1,9 @@
-# AutoRepro-Min
+# autoMRE
 
 Automated multi-file bug reproduction minimization for Python projects,
 via coverage-guided empirical delta debugging.
 
-Given a project directory and a reproduction command, AutoRepro-Min
+Given a project directory and a reproduction command, autoMRE
 iteratively removes files, definitions and statements, validating after
 each candidate removal that the command still produces the same
 behavior. What remains is a small subset of the original codebase that
@@ -224,7 +224,7 @@ Every subprocess that must observe the tree as written now goes through
 `validator.oracle_env()`, which sets `PYTHONDONTWRITEBYTECODE`; the
 fidelity check additionally purges `__pycache__` before scoring, so the
 verifier does not depend on a setting chosen by the code it verifies.
-`autorepro_min/tests/test_oracle_sees_current_source.py` rewrites a
+`automre/tests/test_oracle_sees_current_source.py` rewrites a
 module to a same-length body and fails if the change goes unobserved.
 
 Suppressing writes is not sufficient on its own, which took a second
@@ -301,7 +301,7 @@ where the time went, and cost more than the error it was fixing.
 
 **The check that catches the first three is a vacuity probe, not a size
 assertion.** Size cannot distinguish a good reduction from a destroyed
-one. `autorepro_min/tests/test_no_vacuous_reduction.py` sabotages the
+one. `automre/tests/test_no_vacuous_reduction.py` sabotages the
 library on purpose and requires the test to notice; a reduction that
 survives its own dependency being broken was never exercising it.
 
@@ -454,12 +454,12 @@ shrinking as the reducer around it got better, is the result.
 pip install -e .
 
 # Reduce a project against a failing test
-python -m autorepro_min.src.cli reduce-project ./my_project \
+python -m automre.src.cli reduce-project ./my_project \
   -c "python3 -m pytest tests/test_bug.py::test_foo -x -q" \
   -v
 
 # Tests (32, ~7s)
-python -m pytest autorepro_min/tests/
+python -m pytest automre/tests/
 
 # Benchmark. Provisions a pinned venv on first run; ~1 h for 6 tasks
 python evaluation/gistify_runner.py
@@ -476,7 +476,7 @@ the harness would then faithfully preserve *the collection error*.
 ## Structure
 
 ```
-autorepro_min/src/
+automre/src/
   parser.py                 tree-sitter AST + CodeUnit model
   tracer.py                 coverage.py wrapper (interpreter-aware)
   validator.py              behavior oracle + output normalization

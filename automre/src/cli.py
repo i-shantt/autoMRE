@@ -1,11 +1,11 @@
 """
-AutoRepro-Min: Automated Bug Reproduction Minimization
+autoMRE: Automated Bug Reproduction Minimization
 Command-Line Interface
 
 Usage:
-    python -m autorepro_min reduce [options] <file>
-    python -m autorepro_min validate [options] <file>
-    python -m autorepro_min trace [options] <file>
+    python -m automre reduce [options] <file>
+    python -m automre validate [options] <file>
+    python -m automre trace [options] <file>
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ def cmd_reduce(args):
     # Read source code
     source_code = file_path.read_text()
 
-    print(f"AutoRepro-Min: Reducing {file_path}")
+    print(f"autoMRE: Reducing {file_path}")
     print(f"Original size: {len(source_code.split(chr(10)))} lines")
     print()
 
@@ -91,7 +91,7 @@ def cmd_validate(args):
 
     source_code = file_path.read_text()
 
-    print(f"AutoRepro-Min: Validating {file_path}")
+    print(f"autoMRE: Validating {file_path}")
 
     # Create validator
     validator = Validator(match_strategy=args.strategy)
@@ -154,7 +154,7 @@ def cmd_trace(args):
         print(f"Error: File not found: {file_path}", file=sys.stderr)
         return 1
 
-    print(f"AutoRepro-Min: Tracing {file_path}")
+    print(f"autoMRE: Tracing {file_path}")
 
     # Create tracer
     tracer = ExecutionTracer(timeout=args.timeout)
@@ -276,7 +276,7 @@ def cmd_parse(args):
         print(f"Error: File not found: {file_path}", file=sys.stderr)
         return 1
 
-    print(f"AutoRepro-Min: Parsing {file_path}")
+    print(f"autoMRE: Parsing {file_path}")
 
     # Create parser
     parser = PythonParser()
@@ -308,22 +308,22 @@ def cmd_parse(args):
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        prog='autorepro_min',
+        prog='automre',
         description='Automated Bug Reproduction Minimization Tool',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Reduce a Python file
-  python -m autorepro_min reduce bug.py -o bug.min.py
+  python -m automre reduce bug.py -o bug.min.py
 
   # Reduce with custom command
-  python -m autorepro_min reduce test_bug.py -c "pytest test_bug.py -v"
+  python -m automre reduce test_bug.py -c "pytest test_bug.py -v"
 
   # Trace execution
-  python -m autorepro_min trace bug.py
+  python -m automre trace bug.py
 
   # Validate minimized code
-  python -m autorepro_min validate bug.min.py -r bug.py
+  python -m automre validate bug.min.py -r bug.py
         """
     )
 
@@ -414,10 +414,10 @@ Examples:
                          'the one your test command uses, or Phase 1 will '
                          'measure a different environment than the one '
                          'reductions are validated against. Defaults to '
-                         'the interpreter running autorepro-min.')
+                         'the interpreter running automre.')
     rp.add_argument('--oracle-model', default=None, metavar='PATH',
                     help='Path to the pickled oracle model. Defaults to '
-                         'the one shipped in autorepro_min/src/ml/.')
+                         'the one shipped in automre/src/ml/.')
     rp.add_argument('-v', '--verbose', action='store_true',
                     help='Verbose progress output')
 

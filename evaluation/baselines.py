@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Automated Bug Reproduction Minimization
+autoMRE: Automated Bug Reproduction Minimization
 Baseline Algorithms Module
 
 Implements baseline reduction algorithms for comparison:
@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent / 'autorepro_min' / 'src'))
+sys.path.insert(0, str(Path(__file__).parent.parent / 'automre' / 'src'))
 
 from parser import PythonParser, format_code_without_units
 from tracer import ExecutionTracer

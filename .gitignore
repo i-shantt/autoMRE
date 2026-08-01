@@ -58,7 +58,7 @@ venv.bak/
 .claude/
 
 # Temporary / Output files from execution
-autorepro_min/examples/simple_single_file/bug_output.py
+automre/examples/simple_single_file/bug_output.py
 evaluation/comparison_results.json
 
 # Benchmark artifacts (cloned repos, external datasets)

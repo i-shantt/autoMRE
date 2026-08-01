@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Automated Bug Reproduction Minimization
+autoMRE: Automated Bug Reproduction Minimization
 Execution Tracer Module
 
 This module provides execution tracing using coverage.py to identify

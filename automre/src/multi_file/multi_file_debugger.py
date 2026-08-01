@@ -1,5 +1,5 @@
 """
-AutoRepro-Min: Multi-File Reduction
+autoMRE: Multi-File Reduction
 Orchestrator (MF-HDD-E)
 
 Wires together the four phases of multi-file reduction:
