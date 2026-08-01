@@ -89,28 +89,38 @@ in the reducer to go find.
 
 Raw per-function timings: `evaluation/profile_reduction_paths.json`.
 
-tomlkit complicates that picture, and the complication is **unresolved**.
-Its four tasks cost 0.58, 0.91, 2.22 and 2.60 seconds per query — a 4.5x
-spread on one repo, one machine, one reducer, with the pipeline
-byte-identical across all four. The smallest repo of the three is by
-some distance the most expensive to reduce.
-
-Two candidate explanations are already ruled out. It is not the cost of
-the target test: on the unreduced tree those same four commands take
-0.14, 0.48, 0.49 and 0.40 s, which is neither the right ordering nor the
-right spread. And it is not simply the per-collection work done by
-tomlkit's `tests/conftest.py` — whose `pytest_generate_tests` hook walks
+tomlkit looked like it broke that picture: its four tasks cost 0.58,
+0.91, 2.22 and 2.60 seconds per query, a 4.5x spread on one repo and one
+machine with a byte-identical pipeline. Two plausible explanations were
+wrong. It is not the target test's own cost — on the unreduced tree
+those four commands take 0.14, 0.48, 0.49 and 0.40 s, neither the right
+ordering nor the right spread. And it is not the per-collection work in
+tomlkit's `tests/conftest.py`, whose `pytest_generate_tests` hook walks
 and reads all 383 files of a submodule on *every* collected test
-function — because that would make cost track test count, and it
-inverts: `test_api.py` has 137 test functions against `test_items.py`'s
-61, yet costs 0.91 s/query against 2.22.
+function: that predicts cost tracking test count, and the ordering
+inverts (`test_api.py`, 137 test functions, 0.91 s/query;
+`test_items.py`, 61, 2.22).
 
-So the per-query cost of a task is not predicted by either the obvious
-input or the obvious pathology, and one repo now spans a wider range
-than the two-repo gap (196 ms vs 490 ms) that the whole speed analysis
-above was built on. Worth measuring properly before any further speed
-work: the profiler that produced the table above should be pointed at a
-cheap and an expensive tomlkit task.
+Instrumenting every query settled it. On `tomlkit-write_backslash`:
+
+| median | p90 | p99 | max | timeouts |
+|---:|---:|---:|---:|---:|
+| 0.137 s | 0.159 s | 0.404 s | 120.2 s | 10 |
+
+**Ten queries out of 2,699 — 0.37% — account for 76% of all query
+time.** The typical tomlkit query is 0.137 s, *cheaper* than requests'
+0.16 s. tomlkit was never slow; it hangs ten times and hits the 120 s
+timeout. A mean is the wrong statistic for a distribution with that
+tail, and every "seconds per query" figure above is one.
+
+That is not only wasted time. `multi_file_validator` returns
+`timed_out=True` and `_oracle_matches` hard-rejects it, so a wall-clock
+event becomes a "the bug broke" verdict and the candidate is refused
+whether or not it was a valid reduction. tomlkit is a parser, and
+stubbing a body to `pass` is an easy way to make a `while` loop never
+terminate — so this is very likely part of why tomlkit reduces 8 points
+worse than requests. The timeout policy is the next thing to fix; it is
+a correctness bug wearing a performance bug's clothes.
 
 Breaking down one flask query on the unreduced tree, median of seven:
 11 ms to start the interpreter, 62 ms once `pytest` is imported, 103 ms
@@ -143,6 +153,31 @@ is now measured.
 entire `src/requests` package still passed 13/13. Every "reduction" was
 of files nothing imported. The harness now installs the work copy and
 refuses to run if the package under test resolves outside it.
+
+**...and that fix was not enough.** The same bug returned on a hosted
+runtime. A notebook worked around a broken `ensurepip` by adding
+`--system-site-packages` to the benchmark venv; Colab and Kaggle
+preinstall `requests` and `flask`, so a second copy sat on `sys.path`
+*after* the work copy's. At baseline the work copy was authoritative and
+the resolve-check passed honestly — but with a `src/` layout an editable
+install is a plain path entry, so the instant the reducer deleted the
+package the entry pointed at nothing and the import fell through to the
+host's copy. It scored **6/6 fidelity having deleted flask down to its
+test file in 56 queries**, and both flask tasks landed on exactly their
+protected line counts, 1214 and 2050.
+
+The lesson is that asking *where imports resolve* is the wrong question,
+because it is asked before the state that breaks it exists. The harness
+now runs a positive control after capturing the baseline: rename the
+package aside — the reducer's own most destructive move — and require
+the reproduction command to stop passing. A tree that still reproduces
+the bug with its implementation missing is refused. Building the
+regression test for it took three attempts, and the two failures are
+instructive: a flat-layout fixture cannot exhibit the bug at all
+(setuptools gives it a strict finder that hard-fails rather than falling
+through), and a venv created from another venv with
+`--system-site-packages` exposes the *base* interpreter's
+site-packages, not the parent's, so there was no shadowing copy to find.
 
 **The oracle accepted a different bug.** `error_type` compares only the
 exception class, so a reduction that turned a str/list concatenation
