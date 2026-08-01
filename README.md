@@ -454,19 +454,32 @@ shrinking as the reducer around it got better, is the result.
 pip install -e .
 
 # Reduce a project against a failing test
-python -m automre.src.cli reduce-project ./my_project \
+automre reduce-project ./my_project \
   -c "python3 -m pytest tests/test_bug.py::test_foo -x -q" \
   -v
 
-# Tests (32, ~7s)
-python -m pytest automre/tests/
+# Tests (46, ~16 s)
+python3 -m pytest automre/tests/
 
-# Benchmark. Provisions a pinned venv on first run; ~1 h for 6 tasks
-python evaluation/gistify_runner.py
+# Benchmark. Provisions a pinned venv on first run; ~7 h for 10 tasks
+python3 evaluation/gistify_runner.py
 
 # Same benchmark with the learned oracle (off by default)
-python evaluation/gistify_runner.py --use-learned-oracle
+python3 evaluation/gistify_runner.py --use-learned-oracle
 ```
+
+Use the `automre` console script, not `python3 -m automre.src.cli`. The
+repo root holds an `automre.py` shim next to the `automre/` package
+directory, and that directory has no `__init__.py`, so it is a namespace
+package — which loses to a same-named module on the same path entry.
+From the repo root `python3 -m automre.src.cli` therefore fails with
+"`automre` is not a package", while the identical command works from
+anywhere else. The console script has no such ambiguity.
+
+Nearly all of that 7 hours is tomlkit: 6.0 h for its four tasks against
+0.2 h for the four requests tasks. Wall clock is not comparable across
+sessions in any case — see the `_provenance` note in
+`results_gistify_threerepo.json`.
 
 The benchmark pins `pytest==9.0.0` in `.gistify_venv`. flask's conftest
 reads `_pytest.monkeypatch.notset`, a private sentinel removed in 9.1,
@@ -491,7 +504,7 @@ automre/src/
   tests/                    soundness, vacuity, and unit tests
 evaluation/
   gistify_runner.py         benchmark harness
-  gistify_tasks.json        6-task manifest
+  gistify_tasks.json        10-task manifest (requests, flask, tomlkit)
   results_gistify_*.json    results per configuration
 ```
 
