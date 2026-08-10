@@ -28,7 +28,7 @@ _SRC_DIR = Path(__file__).resolve().parent.parent
 if str(_SRC_DIR) not in _sys.path:
     _sys.path.insert(0, str(_SRC_DIR))
 
-from reducer import HybridDeltaDebugger
+from reducer import HybridDeltaDebugger, _is_parseable
 
 from .coverage_pruner import CoveragePruner, remap_executed_lines
 from .dependency_analyzer import (
@@ -55,6 +55,11 @@ class MultiFileReductionResult:
     per_file_reduction: Dict[Path, tuple] = field(default_factory=dict)
     # path -> (original_lines, final_lines)
     total_queries: int = 0
+    # Queries killed by the per-query time limit. Reported because a
+    # timeout is otherwise indistinguishable from an ordinary "the bug
+    # broke" rejection, and on a parser-shaped project a handful of them
+    # can dominate the wall clock while looking like nothing at all.
+    timed_out_queries: int = 0
     time_seconds: float = 0.0
     # Lines in files the reducer was never allowed to touch (the target
     # test and its conftest). Reported separately because they dominate
@@ -179,6 +184,24 @@ class MultiFileDebugger:
 
         self._purge_bytecode(project_dir)
 
+        # Settled before Phase 1 spends a trace on it: this depends only
+        # on the command and the tree, and there is no point analyzing a
+        # project we are about to refuse.
+        protected = self._protected_files(project_dir, test_command)
+        if self._is_test_runner(test_command) and not protected:
+            # A passing test that protects nothing has a degenerate
+            # solution: stub the test body to `pass`, stub the fixtures,
+            # and delete the library. That is not a risk to warn about —
+            # it is the outcome, every time, and it scores as a near-total
+            # reduction. Refuse rather than produce it.
+            raise ValueError(
+                "the reproduction command runs a test framework but names "
+                "no test file or directory inside the project, so there is "
+                "nothing to protect as the oracle. The reducer would be "
+                "free to empty the tests and then delete the code they "
+                "cover. Name the test path explicitly, e.g. "
+                "\"-m pytest tests/test_bug.py::test_foo\".")
+
         # ------------- Phase 1
         self._log("Phase 1: analyzing project...")
         analysis = self.analyzer.analyze(project_dir, test_command)
@@ -204,7 +227,6 @@ class MultiFileDebugger:
             validator.set_original_from(
                 trace.output, 0 if trace.success else trace.return_code)
 
-        protected = self._protected_files(project_dir, test_command)
         if protected:
             self._log(f"  protecting {len(protected)} oracle file(s): "
                       + ", ".join(sorted(
@@ -388,7 +410,18 @@ class MultiFileDebugger:
                             f"back all {unfiltered.n_removed} coverage "
                             f"candidates — skipping bulk prune")
 
-                if prune.any_removed:
+                if prune.any_removed and not _is_parseable(
+                        prune.pruned_source):
+                    # A prune that does not parse cannot be accepted by any
+                    # oracle, so asking costs a subprocess to learn nothing
+                    # — and the rejection is indistinguishable from
+                    # "coverage lied", which is how a dangling-decorator
+                    # bug hid here for the project's whole history. Check
+                    # locally instead, and say which it was.
+                    self._log(f"  {f.relative_to(project_dir)}: coverage "
+                              "prune produced unparseable source — skipped "
+                              "(no query spent)")
+                elif prune.any_removed:
                     f.write_text(prune.pruned_source)
                     queries += 1
                     if validator.validate():
@@ -470,6 +503,7 @@ class MultiFileDebugger:
             inlined_away=inlined_away,
             per_file_reduction=per_file_reduction,
             total_queries=queries,
+            timed_out_queries=validator.timed_out_queries,
             time_seconds=time.time() - start,
             protected_line_count=sum(self._line_count(f) for f in protected
                                      if f.exists()),
@@ -507,9 +541,16 @@ class MultiFileDebugger:
         only that an empty test passes.
 
         Protected: every existing .py path named in the command (minus
-        any `::node::id` suffix) and every conftest.py from that file's
-        directory up to the project root, since pytest loads those
-        implicitly and they supply the fixtures.
+        any `::node::id` suffix), every .py file under a directory named
+        in the command, and every conftest.py from those files' directories
+        up to the project root, since pytest loads those implicitly and
+        they supply the fixtures.
+
+        Directories count because `pytest tests/` is an ordinary way to
+        name a test suite, and matching only `.py` arguments protected
+        nothing for it — which put the whole gut-the-test failure back
+        within reach through a different door. `reduce_project` refuses a
+        test-runner command that ends up protecting nothing at all.
         """
         protected: Set[Path] = set()
         project_dir = project_dir.resolve()
@@ -526,27 +567,43 @@ class MultiFileDebugger:
 
         for arg in test_command:
             candidate = arg.split("::", 1)[0]
-            if not candidate.endswith(".py"):
-                continue
             path = Path(candidate)
             if not path.is_absolute():
                 path = project_dir / path
-            path = path.resolve()
+            try:
+                path = path.resolve()
+            except OSError:
+                continue
             if not path.exists():
                 continue
-            protected.add(path)
+            # Only paths inside the project are ours to protect; an
+            # argument like `-p no:cacheprovider` can resolve to something
+            # that happens to exist elsewhere.
+            if path != project_dir and project_dir not in path.parents:
+                continue
+
+            if path.is_dir():
+                named = sorted(path.rglob("*.py"))
+            elif path.suffix == ".py":
+                named = [path]
+            else:
+                continue
+            if not named:
+                continue
+            protected.update(named)
 
             # conftest.py files apply to everything at or below their
             # directory, so walk up to the project root collecting them.
-            directory = path.parent
-            while True:
-                for name in self.ORACLE_FILENAMES:
-                    sibling = (directory / name).resolve()
-                    if sibling.exists():
-                        protected.add(sibling)
-                if directory == project_dir or project_dir not in directory.parents:
-                    break
-                directory = directory.parent
+            for directory in {f.parent for f in named}:
+                while True:
+                    for name in self.ORACLE_FILENAMES:
+                        sibling = (directory / name).resolve()
+                        if sibling.exists():
+                            protected.add(sibling)
+                    if (directory == project_dir
+                            or project_dir not in directory.parents):
+                        break
+                    directory = directory.parent
 
         return protected
 

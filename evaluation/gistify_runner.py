@@ -172,6 +172,11 @@ class GistifyResult:
     time_seconds: float
     error: Optional[str] = None
     protected_lines: int = 0
+    # Queries killed by the per-query time limit. Recorded because a
+    # handful of them can dominate a task's wall clock — on tomlkit, ten
+    # queries out of 2,699 were 76% of all query time — while looking
+    # exactly like ordinary rejections in every other number here.
+    timed_out_queries: int = 0
     oracle_enabled: bool = False
     oracle_skipped_attempts: int = 0
     oracle_held_back_files: int = 0
@@ -607,6 +612,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
             total_queries=summary.total_queries,
             time_seconds=elapsed,
             protected_lines=summary.protected_line_count,
+            timed_out_queries=summary.timed_out_queries,
             oracle_enabled=summary.oracle_enabled,
             oracle_skipped_attempts=summary.oracle_skipped_attempts,
             oracle_held_back_files=summary.oracle_held_back_files,
@@ -641,6 +647,12 @@ def main() -> int:
     parser.add_argument("--tasks", default=str(
         _ROOT / "evaluation" / "gistify_tasks.json"),
         help="Path to a tasks JSON manifest")
+    parser.add_argument("--only", default=None,
+        help="Comma-separated substrings; run only the tasks whose id "
+             "matches one of them (e.g. 'requests,flask'). Mirrors the "
+             "flag cloud_bench.py already has. A run restricted this way "
+             "is comparable to the same subset of a full run and to "
+             "nothing else.")
     parser.add_argument("--timeout", type=int, default=120,
                         help="Per-command timeout in seconds")
     parser.add_argument("--output", default=None,
@@ -679,6 +691,16 @@ def main() -> int:
         print("No tasks in manifest.", file=sys.stderr)
         return 1
 
+    if args.only:
+        wanted = [s.strip() for s in args.only.split(",") if s.strip()]
+        tasks = [t for t in tasks
+                 if any(w in t.task_id for w in wanted)]
+        if not tasks:
+            print(f"No tasks match {args.only!r}.", file=sys.stderr)
+            return 1
+        print(f"[gistify] running {len(tasks)} of the manifest's tasks: "
+              + ", ".join(t.task_id for t in tasks), flush=True)
+
     if args.python:
         bench_python = args.python
     elif args.no_venv:
@@ -700,10 +722,12 @@ def main() -> int:
         if r.error:
             print(f"  {icon} error: {r.error}")
         else:
+            timeouts = (f" timeouts={r.timed_out_queries}"
+                        if r.timed_out_queries else "")
             print(f"  {icon} files {r.original_files}->{r.final_files} "
                   f"lines {r.original_lines}->{r.final_lines} "
                   f"single_file={r.single_file_output} "
-                  f"queries={r.total_queries} "
+                  f"queries={r.total_queries}{timeouts} "
                   f"time={r.time_seconds:.1f}s")
         results.append(r)
 
@@ -711,6 +735,10 @@ def main() -> int:
     payload = {
         "config": {
             "prioritizer": "heuristic",
+            # Stamped so a partial run cannot later be mistaken for a
+            # full one. None means the whole manifest ran.
+            "only": args.only,
+            "task_ids": [t.task_id for t in tasks],
             "coverage_prune": not args.no_coverage_prune,
             "learned_oracle": args.use_learned_oracle,
             "test_interpreter": bench_python,

@@ -3,15 +3,21 @@ autoMRE: Automated Bug Reproduction Minimization
 Command-Line Interface
 
 Usage:
-    python -m automre reduce [options] <file>
-    python -m automre validate [options] <file>
-    python -m automre trace [options] <file>
+    automre reduce [options] <file>
+    automre validate [options] <file>
+    automre trace [options] <file>
+
+Invoke the `automre` console script, not `python -m automre.src.cli`.
+The repo root holds an `automre.py` shim beside the `automre/` package
+directory, and that directory has no `__init__.py`, so from the repo root
+the shim wins and the module form fails with "automre is not a package".
 """
 
 from __future__ import annotations
 
 import argparse
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,6 +26,68 @@ from tracer import ExecutionTracer
 from validator import Validator
 from reducer import HybridDeltaDebugger, LineLevelDeltaDebugger
 from multi_file import MultiFileDebugger
+
+
+def _version() -> str:
+    """The installed version, or a marker that we are not installed.
+
+    Hard-coding it here is how `--version` came to report 0.1.0 while
+    pyproject.toml said 0.3.0: two places to change, one of them easy to
+    forget. Ask the package metadata instead, so there is one.
+    """
+    try:
+        from importlib.metadata import version
+        return version("automre")
+    except Exception:
+        return "unknown (not installed)"
+
+
+def _oracle_is_the_subject(file_path: Path, test_command: list):
+    """Reason to refuse a single-file reduction, or None.
+
+    `reduce -c "pytest test_bug.py" test_bug.py` asks the reducer to
+    minimize the file that decides whether the reduction is any good. For
+    a *passing* test that has the degenerate solution the multi-file path
+    already refuses: stub the body to `pass`, watch pytest print
+    "1 passed", and report a near-total reduction of nothing.
+
+    Multi-file reduction handles this by protecting the test and reducing
+    the code around it, which is what this case wants too — hence the
+    pointer rather than a flag to override.
+
+    A *failing* command is fine and is left alone: the oracle then
+    compares a traceback that names the offending line, so the reduction
+    cannot fake it by deleting the cause.
+    """
+    # Relative arguments resolve against the directory the command runs
+    # in, which is the file's parent — not against our cwd.
+    run_dir = file_path.parent
+    named = set()
+    for arg in test_command:
+        candidate = arg.split("::", 1)[0]
+        if not candidate.endswith(".py"):
+            continue
+        path = Path(candidate)
+        named.add((path if path.is_absolute() else run_dir / path).resolve())
+    if file_path.resolve() not in named:
+        return None
+    if not MultiFileDebugger._is_test_runner(test_command):
+        return None
+
+    try:
+        proc = subprocess.run(test_command, cwd=file_path.parent,
+                              capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+
+    return (f"{file_path.name} is both the file being reduced and the test "
+            "the command runs, and that test passes. Emptying it keeps the "
+            "command passing, so the reduction would measure nothing. "
+            "Reduce the code around it instead:\n"
+            f"  automre reduce-project {file_path.parent} "
+            f"-c \"{' '.join(test_command)}\"")
 
 
 def cmd_reduce(args):
@@ -37,18 +105,36 @@ def cmd_reduce(args):
     print(f"Original size: {len(source_code.split(chr(10)))} lines")
     print()
 
-    # Create reducer
-    if args.algorithm == "hdd-e":
-        reducer = HybridDeltaDebugger(verbose=args.verbose)
-    else:
-        reducer = LineLevelDeltaDebugger(verbose=args.verbose)
-
     # Build test command if provided
     test_command = None
     if args.command:
         test_command = args.command.split()
     elif args.pytest:
         test_command = ['pytest', str(file_path), '-v']
+
+    if test_command:
+        refusal = _oracle_is_the_subject(file_path, test_command)
+        if refusal:
+            print(f"Error: {refusal}", file=sys.stderr)
+            return 1
+
+    # A command runs the file where it lies, so the oracle has to put each
+    # candidate there and restore it afterwards — otherwise the command
+    # reads the original and every candidate "passes". Reduction therefore
+    # rewrites this file many times before restoring it.
+    validator = Validator(target_file=file_path if test_command else None)
+    if test_command:
+        print(f"Note: {file_path} is rewritten in place during reduction "
+              "and restored after each query.")
+        print()
+
+    # Create reducer
+    if args.algorithm == "hdd-e":
+        reducer = HybridDeltaDebugger(verbose=args.verbose,
+                                      validator=validator)
+    else:
+        reducer = LineLevelDeltaDebugger(verbose=args.verbose,
+                                         validator=validator)
 
     # Run reduction
     result = reducer.reduce(
@@ -264,6 +350,12 @@ def cmd_reduce_project(args):
     print(f"Imported-only dropped: {len(result.imported_deleted)}")
     print(f"Inlined away:      {len(result.inlined_away)}")
     print(f"Total queries:     {result.total_queries}")
+    if result.timed_out_queries:
+        # Named rather than folded into the rejections, because a hang is
+        # a different event from "the bug broke" and reads as one only if
+        # it is counted separately.
+        print(f"  of which timed out: {result.timed_out_queries} "
+              "(candidate did not terminate; refused)")
     print(f"Time:              {result.time_seconds:.2f}s")
     return 0
 
@@ -314,20 +406,24 @@ def main():
         epilog="""
 Examples:
   # Reduce a Python file
-  python -m automre reduce bug.py -o bug.min.py
+  automre reduce bug.py -o bug.min.py
 
   # Reduce with custom command
-  python -m automre reduce test_bug.py -c "pytest test_bug.py -v"
+  automre reduce test_bug.py -c "pytest test_bug.py -v"
+
+  # Reduce a whole project against a failing test
+  automre reduce-project ./my_project -c "pytest tests/test_bug.py::test_foo -x -q"
 
   # Trace execution
-  python -m automre trace bug.py
+  automre trace bug.py
 
   # Validate minimized code
-  python -m automre validate bug.min.py -r bug.py
+  automre validate bug.min.py -r bug.py
         """
     )
 
-    parser.add_argument('--version', action='version', version='%(prog)s 0.1.0')
+    parser.add_argument('--version', action='version',
+                        version=f'%(prog)s {_version()}')
 
     subparsers = parser.add_subparsers(dest='subcommand', help='Available commands')
 

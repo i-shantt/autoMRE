@@ -30,6 +30,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 _ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_ROOT / "automre" / "src"))
 
@@ -116,3 +118,52 @@ def test_target_test_body_is_not_stubbed(tmp_path):
     assert "mylib.add" in body, (
         "the target test's body was stubbed away; it no longer exercises "
         "anything")
+
+
+# --------------------------------------------------------------------
+# Which commands actually get that protection
+#
+# The protection above keys off `.py` paths in the reproduction command.
+# Two ordinary ways of naming a test suite do not contain one, and for
+# those the reducer was handed an unprotected oracle — the same failure,
+# through a different door.
+
+
+def _suite(tmp_path: Path) -> Path:
+    proj = tmp_path / "suite"
+    (proj / "tests").mkdir(parents=True)
+    (proj / "mylib.py").write_text(LIB)
+    (proj / "tests" / "test_mylib.py").write_text(
+        TEST.replace("import mylib", "import mylib"))
+    (proj / "tests" / "conftest.py").write_text("import mylib  # noqa: F401\n")
+    return proj
+
+
+def test_a_directory_argument_protects_the_tests_under_it(tmp_path):
+    """`pytest tests/` names the suite without naming a .py file."""
+    proj = _suite(tmp_path)
+    debugger = MultiFileDebugger(verbose=False)
+
+    protected = debugger._protected_files(
+        proj.resolve(), [sys.executable, "-m", "pytest", "tests/", "-q"])
+
+    names = {p.name for p in protected}
+    assert "test_mylib.py" in names, (
+        "a directory argument protected nothing, so the reducer may stub "
+        "these tests to `pass` and delete the library they cover")
+    assert "conftest.py" in names, "the fixture file was left unprotected"
+
+
+def test_a_test_run_that_protects_nothing_is_refused(tmp_path):
+    """`pytest -k foo` names no path at all.
+
+    There is nothing to infer here, and guessing would be worse than
+    refusing: the reduction that follows an unprotected pytest command is
+    reliably the degenerate one.
+    """
+    proj = _suite(tmp_path)
+    debugger = MultiFileDebugger(verbose=False, python=sys.executable)
+
+    with pytest.raises(ValueError, match="nothing to protect"):
+        debugger.reduce_project(
+            proj, [sys.executable, "-m", "pytest", "-k", "add", "-q"])

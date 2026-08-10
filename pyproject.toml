@@ -48,6 +48,12 @@ automre = "automre.src.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["automre*"]
+# `automre/` has no __init__.py — it is a namespace package, deliberately,
+# so the `automre.py` shim at the repo root can sit beside it. Without this
+# flag find_packages() returns an empty list and a non-editable install
+# ships no code at all. `pip install -e .` happens to work regardless,
+# which is why this went unnoticed.
+namespaces = true
 
 [tool.setuptools.package-data]
 "automre" = ["examples/**/*"]

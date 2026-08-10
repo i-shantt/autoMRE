@@ -147,7 +147,8 @@ class Validator:
 
     def __init__(self, original_behavior: Optional[OriginalBehavior] = None,
                  timeout: int = 30,
-                 match_strategy: str = "output_match"):
+                 match_strategy: str = "output_match",
+                 target_file: Optional[Path] = None):
         """
         Initialize validator.
 
@@ -156,10 +157,22 @@ class Validator:
             timeout: Maximum execution time in seconds
             match_strategy: How to determine match ("exact", "output_match",
                 "error_type", "error_message")
+            target_file: The file a candidate belongs in. Required when
+                validating against a caller-supplied command, and ignored
+                otherwise.
+
+                Without it there is no connection between the candidate and
+                the command: `validate` used to write the candidate to a
+                temp file and then run a command that read the *original*
+                file, so every candidate matched and the reduction was
+                vacuous — the same category error as the four in the
+                README's trustworthiness section, in the single-file path.
+                It is now a hard error rather than a silent success.
         """
         self.original_behavior = original_behavior
         self.timeout = timeout
         self.match_strategy = match_strategy
+        self.target_file = Path(target_file) if target_file else None
 
     def set_original_behavior(self, output: str, return_code: int):
         """
@@ -178,29 +191,50 @@ class Validator:
 
         Args:
             source_code: Minimized source code to validate
-            command: Command to execute (if None, executes as Python script)
+            command: Command to execute. The candidate is written to
+                `self.target_file` for the duration of the run and the
+                original restored afterwards, so the command actually
+                observes the candidate. Requires `target_file`.
+                If None, the candidate is executed directly as a script.
             cwd: Working directory for execution
 
         Returns:
             ValidationResult indicating whether the reduction is valid
+
+        Raises:
+            ValueError: if a command is given with no target file to put
+                the candidate in. Answering such a query would mean
+                running the *original* code and reporting on the
+                candidate.
         """
         if self.original_behavior is None:
             raise ValueError("Original behavior must be set before validation")
 
-        # Write code to temporary file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py',
-                                         delete=False, dir=cwd) as f:
-            f.write(source_code)
-            temp_file = Path(f.name)
+        if command and self.target_file is None:
+            raise ValueError(
+                "validate() was given a command but no target_file, so the "
+                "candidate would not be on disk when the command runs and "
+                "every candidate would validate. Construct the Validator "
+                "with target_file=<the file being reduced>.")
+
+        # Two shapes. With a command, the candidate replaces the real file
+        # for one run — the same swap-and-restore ProjectFileValidator does
+        # for multi-file reduction. Without one, there is nothing to run but
+        # the candidate itself, so a temp file is exactly right.
+        temp_file: Optional[Path] = None
+        saved: Optional[str] = None
+        if command:
+            target = self.target_file
+            saved = target.read_text() if target.exists() else None
+            target.write_text(source_code)
+        else:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py',
+                                             delete=False, dir=cwd) as f:
+                f.write(source_code)
+                temp_file = Path(f.name)
 
         try:
-            # Execute the minimized code
-            if command:
-                # Use provided command
-                cmd = command
-            else:
-                # Default: run as Python script
-                cmd = [sys.executable, str(temp_file)]
+            cmd = command if command else [sys.executable, str(temp_file)]
 
             result = subprocess.run(
                 cmd,
@@ -245,11 +279,21 @@ class Validator:
                 error_message_similarity=0.0
             )
         finally:
-            # Cleanup temp file
-            try:
-                temp_file.unlink()
-            except:
-                pass
+            # Always put the tree back. The reducer carries the accepted
+            # source in memory and writes the final version itself, so a
+            # rejected candidate must never survive this call.
+            if temp_file is not None:
+                try:
+                    temp_file.unlink()
+                except OSError:
+                    pass
+            elif saved is not None:
+                self.target_file.write_text(saved)
+            elif self.target_file is not None and self.target_file.exists():
+                try:
+                    self.target_file.unlink()
+                except OSError:
+                    pass
 
     def _matches_original(self, output: str, return_code: int) -> bool:
         """

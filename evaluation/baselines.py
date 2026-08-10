@@ -56,9 +56,17 @@ class VanillaDDMin:
 
     def __init__(self, validator: Optional[Validator] = None,
                  timeout: int = 30,
-                 verbose: bool = False):
-        """Initialize ddmin."""
-        self.validator = validator or Validator()
+                 verbose: bool = False,
+                 target_file: Optional[Path] = None):
+        """Initialize ddmin.
+
+        `target_file` is where a candidate is placed while a caller-supplied
+        `test_command` runs. Only needed for that case — both runners here
+        pass `test_command=None`, so the candidate is executed directly —
+        but without it the Validator refuses the query rather than
+        answering it from the original file. See Validator.validate.
+        """
+        self.validator = validator or Validator(target_file=target_file)
         self.timeout = timeout
         self.verbose = verbose
 
@@ -174,10 +182,11 @@ class SyntaxAwareReducer:
 
     def __init__(self, validator: Optional[Validator] = None,
                  timeout: int = 30,
-                 verbose: bool = False):
-        """Initialize reducer."""
+                 verbose: bool = False,
+                 target_file: Optional[Path] = None):
+        """Initialize reducer. See VanillaDDMin for `target_file`."""
         self.parser = PythonParser()
-        self.validator = validator or Validator()
+        self.validator = validator or Validator(target_file=target_file)
         self.timeout = timeout
         self.verbose = verbose
 
@@ -285,10 +294,11 @@ class RandomReducer:
     def __init__(self, validator: Optional[Validator] = None,
                  timeout: int = 30,
                  verbose: bool = False,
-                 seed: int = 42):
-        """Initialize reducer."""
+                 seed: int = 42,
+                 target_file: Optional[Path] = None):
+        """Initialize reducer. See VanillaDDMin for `target_file`."""
         self.parser = PythonParser()
-        self.validator = validator or Validator()
+        self.validator = validator or Validator(target_file=target_file)
         self.timeout = timeout
         self.verbose = verbose
         self.random = random.Random(seed)

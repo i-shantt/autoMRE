@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import subprocess
 import sys as _sys
+import time
+from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional
+from typing import Deque, Dict, Iterator, List, Optional
 
 _SRC_DIR = Path(__file__).resolve().parent.parent
 if str(_SRC_DIR) not in _sys.path:
@@ -40,6 +42,7 @@ class ProjectRunResult:
     output: str
     return_code: int
     timed_out: bool = False
+    duration: float = 0.0
 
 
 class MultiFileValidator:
@@ -56,16 +59,63 @@ class MultiFileValidator:
                 raise SomeRollback
     """
 
+    # ---- query timeout policy
+    #
+    # A reduction asks the same question thousands of times and the answers
+    # cluster tightly: on tomlkit-write_backslash the median query is
+    # 0.137 s and p99 is 0.404 s. A query that runs for two minutes is not
+    # a slow query, it is a different event — most often a stubbed body
+    # that made a `while` loop non-terminating, which a parser repo
+    # produces easily. Waiting the user's full timeout for it buys nothing:
+    # ten such queries out of 2,699 were 76% of that task's entire query
+    # time.
+    #
+    # So `timeout` becomes a ceiling and the working limit is derived from
+    # what this project's queries actually cost, floored so a fast project
+    # still gets real headroom. The verdict on a timeout does not change —
+    # see `_oracle_matches`.
+    TIMEOUT_FLOOR = 10.0
+    TIMEOUT_MULTIPLE = 20.0
+    # Calibrate on the slowest of a recent window rather than the slowest
+    # ever seen. A running maximum only ratchets up, so one unusually slow
+    # query — a cold import, a machine hiccup — would restore the old
+    # ceiling for the rest of the run and quietly undo this.
+    TIMEOUT_WINDOW = 64
+
     def __init__(self, command: List[str], project_dir: Path,
                  timeout: int = 60,
                  match_strategy: str = "output_match"):
         self.command = list(command)
         self.project_dir = Path(project_dir).resolve()
         self.timeout = timeout
+        # Durations of the most recent completed runs. Calibrates the
+        # limit below; empty until the first query returns, when the
+        # ceiling applies.
+        self._recent: Deque[float] = deque(maxlen=self.TIMEOUT_WINDOW)
+        # Queries killed by the limit. Counted because a timeout is
+        # otherwise indistinguishable from an ordinary rejection, which is
+        # how the cost above went unnoticed for so long.
+        self.timed_out_queries = 0
         # Delegate output matching to the existing single-file Validator so
         # we get identical error-type / message semantics.
         self._oracle = Validator(match_strategy=match_strategy,
                                  timeout=timeout)
+
+    @property
+    def query_timeout(self) -> float:
+        """Seconds a single query is allowed, given what they have cost.
+
+        Note this is machine-dependent where the old fixed constant was
+        not. It does not make runs less reproducible in practice: with a
+        10 s floor against a sub-second query, the only thing that crosses
+        the limit is a non-terminating candidate, and those do not finish
+        on a faster machine either.
+        """
+        if not self._recent:
+            return float(self.timeout)
+        return min(float(self.timeout),
+                   max(self.TIMEOUT_FLOOR,
+                       self.TIMEOUT_MULTIPLE * max(self._recent)))
 
     # ------------------------------------------------------ capture
 
@@ -143,24 +193,32 @@ class MultiFileValidator:
     # ------------------------------------------------------ internals
 
     def _run(self) -> ProjectRunResult:
+        limit = self.query_timeout
+        started = time.monotonic()
         try:
             proc = subprocess.run(
                 self.command,
                 cwd=self.project_dir,
                 capture_output=True,
                 text=True,
-                timeout=self.timeout,
+                timeout=limit,
                 env=oracle_env(),
             )
+            elapsed = time.monotonic() - started
+            self._recent.append(elapsed)
             return ProjectRunResult(
                 output=(proc.stdout or "") + (proc.stderr or ""),
                 return_code=proc.returncode,
+                duration=elapsed,
             )
         except subprocess.TimeoutExpired:
+            self.timed_out_queries += 1
             return ProjectRunResult(
-                output="Timeout: reproduction command exceeded time limit",
+                output=(f"Timeout: reproduction command exceeded "
+                        f"{limit:.1f}s"),
                 return_code=-1,
                 timed_out=True,
+                duration=limit,
             )
         except FileNotFoundError as exc:
             return ProjectRunResult(output=f"Command not found: {exc}",
@@ -168,6 +226,14 @@ class MultiFileValidator:
 
     def _oracle_matches(self, run: ProjectRunResult) -> bool:
         if run.timed_out:
+            # A timed-out candidate is one whose tree does not reproduce
+            # the bug in bounded time, so refusing it keeps the code — the
+            # conservative verdict, and the correct one. A tighter limit
+            # can cost reduction; it cannot make the oracle unsound.
+            #
+            # This is deliberately *not* treated as "unknown, retry
+            # later". The usual cause is a candidate that made a loop
+            # non-terminating, and it will hang again.
             return False
         return self._oracle._matches_original(run.output, run.return_code)
 

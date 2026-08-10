@@ -43,7 +43,12 @@ def _overlaps(span: Tuple[int, int],
 
 
 def _apply_removals(source: str, spans: List[Tuple[int, int]]) -> str:
-    """Delete byte ranges, back to front so offsets stay valid."""
+    """Delete character ranges, back to front so offsets stay valid.
+
+    Character, not byte. tree-sitter reports byte offsets and everything
+    here slices a `str`; conflating the two mis-cut every file with a
+    non-ASCII character in it. See parser.byte_to_char_offsets.
+    """
     out = source
     for start, end in sorted(spans, key=lambda r: -r[0]):
         out = out[:start] + out[end:]
@@ -52,14 +57,14 @@ def _apply_removals(source: str, spans: List[Tuple[int, int]]) -> str:
 
 def _apply_edits(source: str,
                  edits: List[Tuple[Tuple[int, int], str]]) -> str:
-    """Replace byte ranges with text, back to front."""
+    """Replace character ranges with text, back to front."""
     out = source
     for (start, end), replacement in sorted(edits, key=lambda e: -e[0][0]):
         out = out[:start] + replacement + out[end:]
     return out
 
 
-def _largest_removable_subset(spans, ok, min_chunk: int = 1, _depth: int = 0):
+def _largest_removable_subset(spans, ok, min_chunk: int = 1):
     """Biggest subset of `spans` that can be removed together.
 
     Halving, in the spirit of ddmin: ask about the whole set first, and
@@ -89,8 +94,8 @@ def _largest_removable_subset(spans, ok, min_chunk: int = 1, _depth: int = 0):
         return []
 
     mid = len(spans) // 2
-    left = _largest_removable_subset(spans[:mid], ok, min_chunk, _depth + 1)
-    right = _largest_removable_subset(spans[mid:], ok, min_chunk, _depth + 1)
+    left = _largest_removable_subset(spans[:mid], ok, min_chunk)
+    right = _largest_removable_subset(spans[mid:], ok, min_chunk)
 
     combined = left + right
     # Each half is removable alone; together they may not be (one may
@@ -676,6 +681,8 @@ class HybridDeltaDebugger:
                     accepted.append((span, replacement))
                     if self.verbose:
                         print("  Stubbed a body to pass")
+                else:
+                    stats.failed_removals += 1
 
             if not accepted:
                 return current
