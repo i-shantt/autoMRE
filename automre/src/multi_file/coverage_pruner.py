@@ -161,12 +161,50 @@ class CoveragePruner:
             because the `def` line runs at import time even when
             the function is never called — using it would mark every
             top-level function as covered and defeat the pruner.
+          * decorated_definition is taken *whole*, decorators included,
+            and judged by what it wraps. Taking the inner definition
+            alone leaves the decorators with nothing under them, and
+            since a prune removes every uncovered unit in a file at
+            once, one such node made the entire file's pruned source a
+            syntax error — read downstream as "coverage lied", rolled
+            back, and every unit in the file rediscovered one query at
+            a time. 50 of flask's 82 files contain a decorated
+            definition.
           * Any other removable node with zero covered lines is
             taken whole.
           * Partially-covered classes and modules are descended into
             so we can prune individual uncovered methods.
         """
         node_type = node.type
+
+        if node_type == "decorated_definition":
+            inner = self._decorated_target(node)
+            if inner is None:
+                return []
+            if inner.type == "function_definition":
+                # Judge by the body, for the same reason as above — and
+                # more so here, since the decorator line itself always
+                # runs at import time.
+                body = self._function_body(inner)
+                covered = self._touches(body if body is not None else inner,
+                                        executed_lines)
+            else:
+                covered = self._touches(node, executed_lines)
+            if not covered:
+                if accept is not None and not accept(node):
+                    return []
+                return [self._to_range(node, offsets)]
+            if inner.type == "function_definition":
+                return []  # leaf rule: whole function or nothing
+            # A live decorated class: descend past the class node itself,
+            # so the class_definition rule below cannot take it bare and
+            # strand its decorators.
+            collected: List[RemovedRange] = []
+            for child in inner.children:
+                collected.extend(
+                    self._find_prunable(child, executed_lines, accept,
+                                        offsets))
+            return collected
 
         if node_type == "function_definition":
             body = self._function_body(node)
@@ -191,6 +229,14 @@ class CoveragePruner:
                 self._find_prunable(child, executed_lines, accept,
                                     offsets))
         return collected
+
+    @staticmethod
+    def _decorated_target(node: Node) -> Optional[Node]:
+        """The definition a `decorated_definition` decorates."""
+        for child in node.children:
+            if child.type in ("function_definition", "class_definition"):
+                return child
+        return None
 
     @staticmethod
     def _function_body(node: Node) -> Optional[Node]:

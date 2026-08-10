@@ -108,6 +108,16 @@ class PythonParser:
 
     # Node types that can be removed (leaf units for HDD)
     REMOVABLE_TYPES = {
+        # A decorated def is one unit, decorators included. tree-sitter
+        # puts the decorators in a `decorated_definition` wrapper *around*
+        # the definition, so removing the inner `function_definition`
+        # leaves `@app.route(...)` with nothing under it — a syntax error,
+        # which the local parse check then rejects forever. Before this
+        # entry existed, no decorated function or method could be removed
+        # by any pass: 111 module-level definitions on flask were not even
+        # candidates, and 497 decorated methods were proposed once each
+        # and rejected every time.
+        'decorated_definition',
         'function_definition',
         'class_definition',
         'import_statement',
@@ -192,7 +202,15 @@ class PythonParser:
 
         for child in root.children:
             unit = self._node_to_unit(child, source, execution_lines, offsets)
-            if unit and unit.can_remove:
+            # Keep non-removable top-level units too, for their children.
+            # `get_flat_units` already emits only removable units while
+            # recursing through the rest, so filtering on can_remove here
+            # did not make the result safer — it severed whole top-level
+            # subtrees. A module-level `decorated_definition` used to be
+            # dropped here along with everything inside it, which is why
+            # decorated functions were not merely unremovable but
+            # invisible.
+            if unit is not None:
                 units.append(unit)
 
         return units
@@ -264,6 +282,15 @@ class PythonParser:
                 )
             return None
 
+        # A definition wrapped in decorators is reachable two ways: as the
+        # `decorated_definition` (which carries the decorators with it) and
+        # as the bare definition inside it. Only the first is removable —
+        # the second cuts between the decorators and their target. Keep
+        # descending, so statements in the body remain candidates.
+        wrapped = (node.type in ('function_definition', 'class_definition')
+                   and node.parent is not None
+                   and node.parent.type == 'decorated_definition')
+
         # This is a removable unit. Keep descending so nested removable
         # units stay reachable.
         #
@@ -291,7 +318,7 @@ class PythonParser:
             text=source[start_char:end_char],
             children=children,
             execution_count=self._count_execution(node, execution_lines),
-            can_remove=True,
+            can_remove=not wrapped,
             ts_node=node
         )
 

@@ -21,6 +21,8 @@ from reducer import (  # noqa: E402
     _largest_removable_subset,
     _overlaps,
 )
+from multi_file.coverage_pruner import CoveragePruner  # noqa: E402
+from multi_file.multi_file_validator import MultiFileValidator  # noqa: E402
 from validator import Validator  # noqa: E402
 
 
@@ -60,6 +62,167 @@ def test_units_inside_function_bodies_are_discoverable():
                for u in units), "assignments in bodies are invisible"
     # The method inside the class must be reachable too.
     assert sum(1 for u in units if u.node_type == "function_definition") >= 2
+
+
+DECORATED = '''\
+import functools
+
+
+@functools.lru_cache
+def cached():
+    return 2
+
+
+class C:
+    @property
+    def prop(self):
+        return 3
+
+    def plain(self):
+        return 4
+'''
+
+
+def _flat(source: str):
+    p = PythonParser()
+    return p.get_flat_units(p.extract_units(p.parse_source(source),
+                                            source, set()))
+
+
+def test_a_decorated_definition_is_a_removable_unit():
+    """Decorated definitions were invisible, then unremovable.
+
+    tree-sitter wraps a decorated def in a `decorated_definition` and puts
+    the decorators there, outside the `function_definition`. Two separate
+    consequences followed. At module level, `extract_units` dropped the
+    wrapper for not being removable and took everything inside it with it,
+    so the function was never a candidate at all. Inside a class the inner
+    definition was reachable, but removing it cut between the decorators
+    and their target, so every attempt was a syntax error and the method
+    could never go.
+    """
+    units = _flat(DECORATED)
+    kinds = [u.node_type for u in units]
+
+    assert kinds.count("decorated_definition") == 2, (
+        "the module-level decorated function and the decorated method "
+        "must both be candidates")
+    # Exactly one candidate per decorated definition: proposing the bare
+    # inner definition as well would spend a rejection on every pass.
+    starts = {(u.start_char, u.end_char) for u in units
+              if u.node_type == "decorated_definition"}
+    for unit in units:
+        if unit.node_type == "function_definition":
+            assert (unit.start_char, unit.end_char) not in starts
+
+
+def test_removing_a_decorated_definition_takes_its_decorators():
+    checked = 0
+    for unit in _flat(DECORATED):
+        if unit.node_type != "decorated_definition":
+            continue
+        checked += 1
+        candidate = _apply_removals(DECORATED,
+                                    [(unit.start_char, unit.end_char)])
+        assert _is_parseable(candidate), (
+            f"removing the decorated unit at L{unit.start_line} stranded "
+            "its decorators, so the reducer can never remove it")
+        assert unit.text not in candidate, (
+            "the unit's own text survived its removal")
+
+    # Without this the test passes by having nothing to check, which is
+    # exactly the state the fix was written to leave behind.
+    assert checked == 2, f"expected 2 decorated units, checked {checked}"
+
+
+def test_coverage_prune_never_strands_a_decorator():
+    """The expensive half of the same bug.
+
+    A prune strips every uncovered unit in a file in one shot, so one
+    uncovered decorated function made the whole file's pruned source a
+    syntax error. Downstream that is indistinguishable from "coverage
+    lied": the query fails, Phase 4a rolls back, and every unit in the
+    file is rediscovered one query at a time.
+    """
+    source = '''\
+import functools
+
+
+def used():
+    return 1
+
+
+@functools.lru_cache
+def never_called():
+    return 2
+
+
+x = used()
+'''
+    # Import-time lines plus the body of `used`. The decorator line runs
+    # at import too, which is exactly why coverage of the *body* is what
+    # decides whether a decorated function is dead.
+    executed = {1, 4, 5, 8, 9, 13}
+
+    result = CoveragePruner().prune_source(source, executed)
+
+    assert result.any_removed, "the dead decorated function was not pruned"
+    assert _is_parseable(result.pruned_source), (
+        "the prune left a decorator with nothing under it")
+    assert "lru_cache" not in result.pruned_source
+    assert "def used" in result.pruned_source
+
+
+# --------------------------------------------------------------------
+# The per-query time limit
+#
+# A hang is not a slow query. On tomlkit-write_backslash the median query
+# is 0.137 s and ten queries out of 2,699 hit the 120 s ceiling — 76% of
+# all query time spent waiting for candidates that were never going to
+# finish. The ceiling is now a ceiling and the working limit comes from
+# what this project's queries actually cost.
+
+
+def _validator(timeout, *observed):
+    v = MultiFileValidator(["true"], Path("."), timeout=timeout)
+    v._recent.extend(observed)
+    return v
+
+
+def test_the_limit_is_the_user_ceiling_until_a_query_has_been_timed():
+    assert _validator(120).query_timeout == 120.0
+
+
+def test_the_limit_is_floored_for_a_fast_project():
+    """20 x 0.137 s is 2.7 s, which is too tight to be worth the risk."""
+    v = _validator(120, 0.137, 0.14, 0.13)
+    assert v.query_timeout == MultiFileValidator.TIMEOUT_FLOOR
+    assert v.query_timeout < 120.0, (
+        "a sub-second project still waits the full ceiling on a hang")
+
+
+def test_the_limit_tracks_a_slow_project():
+    assert _validator(600, 1.0, 3.0, 0.5).query_timeout == 60.0
+
+
+def test_the_user_timeout_remains_a_hard_ceiling():
+    """`--timeout 5` must mean at most 5s, not 20x whatever we measured."""
+    assert _validator(5, 3.0).query_timeout == 5.0
+
+
+def test_one_slow_query_does_not_raise_the_limit_forever():
+    """A running maximum would ratchet and quietly restore the ceiling.
+
+    One cold import or machine hiccup should not buy every later hang two
+    more minutes of waiting, so the estimate is taken over a window of
+    recent queries and the outlier ages out.
+    """
+    v = _validator(120, 4.0)
+    assert v.query_timeout == 80.0, "the outlier should count while recent"
+
+    v._recent.extend([0.1] * MultiFileValidator.TIMEOUT_WINDOW)
+    assert v.query_timeout == MultiFileValidator.TIMEOUT_FLOOR, (
+        "the outlier never aged out of the estimate")
 
 
 def test_remap_preserves_line_content_across_removal():
