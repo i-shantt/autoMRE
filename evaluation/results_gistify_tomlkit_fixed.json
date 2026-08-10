@@ -1,0 +1,93 @@
+{
+  "config": {
+    "prioritizer": "heuristic",
+    "only": "tomlkit",
+    "task_ids": [
+      "tomlkit-parse_examples",
+      "tomlkit-array_items",
+      "tomlkit-document_dict",
+      "tomlkit-write_backslash"
+    ],
+    "coverage_prune": true,
+    "learned_oracle": false,
+    "test_interpreter": "/Users/ishant/autoMRE/.gistify_venv/bin/python",
+    "pinned_pytest": "pytest==9.0.0"
+  },
+  "summary": {
+    "n_tasks": 4,
+    "execution_fidelity_rate": 1.0,
+    "single_file_rate": 0.0,
+    "avg_time_seconds": 2478.6698473095894,
+    "avg_queries": 3137.5
+  },
+  "runs": [
+    {
+      "task_id": "tomlkit-parse_examples",
+      "execution_fidelity": 1,
+      "original_files": 28,
+      "final_files": 11,
+      "original_lines": 8621,
+      "final_lines": 958,
+      "single_file_output": false,
+      "total_queries": 2572,
+      "time_seconds": 995.242861032486,
+      "error": null,
+      "protected_lines": 572,
+      "timed_out_queries": 14,
+      "oracle_enabled": false,
+      "oracle_skipped_attempts": 0,
+      "oracle_held_back_files": 0
+    },
+    {
+      "task_id": "tomlkit-array_items",
+      "execution_fidelity": 1,
+      "original_files": 28,
+      "final_files": 14,
+      "original_lines": 8621,
+      "final_lines": 1798,
+      "single_file_output": false,
+      "total_queries": 3172,
+      "time_seconds": 5215.049585103989,
+      "error": null,
+      "protected_lines": 1113,
+      "timed_out_queries": 52,
+      "oracle_enabled": false,
+      "oracle_skipped_attempts": 0,
+      "oracle_held_back_files": 0
+    },
+    {
+      "task_id": "tomlkit-document_dict",
+      "execution_fidelity": 1,
+      "original_files": 28,
+      "final_files": 15,
+      "original_lines": 8621,
+      "final_lines": 2301,
+      "single_file_output": false,
+      "total_queries": 4159,
+      "time_seconds": 3250.48446893692,
+      "error": null,
+      "protected_lines": 1294,
+      "timed_out_queries": 94,
+      "oracle_enabled": false,
+      "oracle_skipped_attempts": 0,
+      "oracle_held_back_files": 0
+    },
+    {
+      "task_id": "tomlkit-write_backslash",
+      "execution_fidelity": 1,
+      "original_files": 28,
+      "final_files": 14,
+      "original_lines": 8621,
+      "final_lines": 746,
+      "single_file_output": false,
+      "total_queries": 2647,
+      "time_seconds": 453.90247416496277,
+      "error": null,
+      "protected_lines": 142,
+      "timed_out_queries": 10,
+      "oracle_enabled": false,
+      "oracle_skipped_attempts": 0,
+      "oracle_held_back_files": 0
+    }
+  ]
+}

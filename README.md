@@ -133,31 +133,55 @@ Ten pytest tasks across `psf/requests v2.32.3`, `pallets/flask 3.0.3`
 and `python-poetry/tomlkit 0.13.2`
 (`evaluation/gistify_tasks.json`), on an M4 MacBook Air.
 
-> **Six of ten are current.** requests and flask below were re-measured
-> after the [decorated-definition fix](#decorated-code-could-never-be-removed)
-> and the [timeout fix](#a-hung-query-cost-two-minutes). The four
-> tomlkit tasks are re-running as of this writing; their pre-fix numbers
-> are shown in grey and should be read as an upper bound on surviving
-> lines, not as current results.
+| task | lines | reduction | files | queries | timeouts |
+|------|------:|----------:|:-----:|--------:|---------:|
+| requests-super_len_partial   | 11209 → 1166 | 89.6% | 36 → 10 | 1184 | 0 |
+| requests-guess_json_utf      | 11209 → 1185 | 89.4% | 36 → 10 | 1221 | 0 |
+| requests-content_disposition | 11209 → 1179 | 89.5% | 36 → 10 | 1202 | 0 |
+| requests-cookie_utils        | 11209 → 1190 | 89.4% | 36 → 10 | 1248 | 0 |
+| flask-request_ctx_basic      | 17565 → 2427 | 86.2% | 82 → 13 | 2489 | 6 |
+| flask-blueprint_registration | 17565 → 1896 | 89.2% | 82 → 17 | 3037 | 6 |
+| tomlkit-write_backslash      | 8621 → 746  | 91.3% | 28 → 14 | 2647 | 10 |
+| tomlkit-parse_examples       | 8621 → 958  | 88.9% | 28 → 11 | 2572 | 14 |
+| tomlkit-array_items          | 8621 → 1798 | 79.1% | 28 → 14 | 3172 | 52 |
+| tomlkit-document_dict        | 8621 → 2301 | 73.3% | 28 → 15 | 4159 | 94 |
 
-| task | lines | reduction | files | queries |
-|------|------:|----------:|:-----:|--------:|
-| requests-super_len_partial   | 11209 → 1166 | 89.6% | 36 → 10 | 1184 |
-| requests-guess_json_utf      | 11209 → 1185 | 89.4% | 36 → 10 | 1221 |
-| requests-content_disposition | 11209 → 1179 | 89.5% | 36 → 10 | 1202 |
-| requests-cookie_utils        | 11209 → 1190 | 89.4% | 36 → 10 | 1248 |
-| flask-request_ctx_basic      | 17565 → 2427 | 86.2% | 82 → 13 | 2489 |
-| flask-blueprint_registration | 17565 → 1896 | 89.2% | 82 → 17 | 3037 |
-| *tomlkit-write_backslash* ᵖ  | *8621 → 840*  | *90.3%* | *28 → 14* | *2700* |
-| *tomlkit-parse_examples* ᵖ   | *8621 → 1090* | *87.4%* | *28 → 11* | *2801* |
-| *tomlkit-array_items* ᵖ      | *8621 → 1883* | *78.2%* | *28 → 14* | *3124* |
-| *tomlkit-document_dict* ᵖ    | *8621 → 2419* | *71.9%* | *28 → 15* | *4081* |
+**87.03% aggregate line reduction, 10/10 execution fidelity.** Raw data
+in `evaluation/results_gistify_decorators.json` (requests, flask) and
+`evaluation/results_gistify_tomlkit_fixed.json` (tomlkit).
 
-<sup>ᵖ pre-fix measurement, being re-run</sup>
+### What the last two fixes bought
 
-**On the six current tasks: 88.69% aggregate line reduction, 6/6
-execution fidelity.** Raw data in
-`evaluation/results_gistify_decorators.json`.
+Every task above was re-measured after the [decorated-definition
+fix](#decorated-code-could-never-be-removed) and the [timeout
+fix](#a-hung-query-cost-two-minutes), against the same ten tasks on the
+same machine:
+
+| | before | after |
+|---|---:|---:|
+| aggregate reduction | 86.53% | **87.03%** |
+| reducible-only | 95.23% | **95.77%** |
+| surviving lines | 15,413 | **14,846** |
+| queries | 23,326 | **22,931** |
+| wall clock | 6.97 h | **3.34 h** |
+| execution fidelity | 10/10 | 10/10 |
+| timeouts | *not counted* | 182 |
+
+**The two fixes cannot be told apart from this table**, and it would be
+convenient but wrong to imply otherwise: they shipped together, so the
+567-line improvement is not attributable to either alone without an
+ablation that has not been run.
+
+What *can* be said is directional. The decorator fix has a mechanism for
+improving reduction — it makes code removable that previously was not.
+The timeout fix has no such mechanism, and can only ever make reduction
+worse: a shorter limit means a candidate that used to finish at 90 s now
+gets refused. Since reduction improved rather than degraded, the
+decorator fix is doing the work and the tighter limit cost nothing
+measurable. That is a weaker claim than an ablation, and it is stated as
+one.
+
+The 52% wall-clock cut is unambiguous, and it is the timeout fix.
 
 ### Reading these numbers
 
@@ -167,13 +191,13 @@ survives is the test file, which is deliberately never touched. On
 test and its conftest.
 
 Measured over the code actually eligible for removal, reduction is
-**97.6%**:
+**95.8%**:
 
 | repo | tasks | aggregate | reducible-only | fidelity |
 |---|:-:|---:|---:|:-:|
 | `psf/requests`        | 4 | 89.5% | **98.4%** | 4/4 |
 | `pallets/flask`       | 2 | 87.7% | 96.7% | 2/2 |
-| `python-poetry/tomlkit` | 4 | *re-running* | *re-running* | — |
+| `python-poetry/tomlkit` | 4 | 83.2% | **91.4%** | 4/4 |
 
 Both numbers are worth having: the aggregate says what the project looks
 like afterwards, the reducible-only figure says what the tool did.
@@ -185,15 +209,23 @@ leave-one-repo-out has three folds instead of two, and it was chosen to
 have a different shape: a flat package layout rather than `src/`, and
 tests driven by real `.toml` fixture files.
 
-It earns its place by **disagreeing** with the other two. On the pre-fix
-pipeline it reduced 8 points worse than requests, and the spread *within*
-tomlkit (84.6% to 93.6% reducible-only) was wider than the spread across
-all six original tasks. With two repos, 97.5% looked like a property of
-the method. The third fold said it was partly a property of the
-codebases the method had been pointed at. Nothing was tuned for tomlkit
-or away from it — the pipeline is byte-identical across all ten tasks.
-That is the single most useful thing the third repo bought, and it is an
-argument for a fourth.
+It earns its place by **disagreeing** with the other two. It reduces
+**7 points worse than requests** (91.4% against 98.4% reducible-only),
+and the spread *within* tomlkit is wider than the spread across all six
+requests and flask tasks combined. With two repos, ~97.5% looked like a
+property of the method. The third fold said it was partly a property of
+the codebases the method had been pointed at.
+
+The disagreement survived both recent fixes, which is the useful part.
+tomlkit gained the most of any repo from them — 1.3 points of aggregate
+reduction, against 0.1 on requests — and it is still the outlier. So the
+gap is not an artifact of the two defects; something about a
+hand-written recursive-descent parser resists this technique in a way
+`requests` does not.
+
+Nothing was tuned for tomlkit or away from it: the pipeline is
+byte-identical across all ten tasks. That is the single most useful
+thing the third repo bought, and it is an argument for a fourth.
 
 ### Reproducibility
 
@@ -213,8 +245,8 @@ not finish on a faster machine either.
 
 ## Where the time goes
 
-Reduction is the expensive part: ~1,700 validation queries per task on
-the six current tasks. Timing every function on the reduction path
+Reduction is the expensive part: ~2,290 validation queries per task,
+22,931 across the benchmark. Timing every function on the reduction path
 accounts for that time to within half a percent:
 
 | | requests-guess_json_utf | flask-request_ctx_basic |
@@ -448,10 +480,18 @@ inner function's *body* — the decorator line runs at import time, so
 judging the whole node would mark every decorated function covered.
 
 **This is the first defect in this project's history that made the
-numbers too pessimistic rather than too optimistic.** Candidate counts
-rose 3.8% on requests, 9.1% on flask, 2.8% on tomlkit; measured
-end-to-end it removed 138 more lines across the six tasks and spent 239
-fewer queries doing it.
+numbers too pessimistic rather than too optimistic.** Every other entry
+here inflated a score; this one suppressed one. Candidate counts rose
+3.8% on requests, 9.1% on flask and 2.8% on tomlkit, and across the ten
+tasks the re-run removed 567 more lines while spending 395 fewer
+queries — though it shipped alongside the timeout fix, so see [what the
+last two fixes bought](#what-the-last-two-fixes-bought) for what can and
+cannot be attributed to it.
+
+The per-repo pattern is what you would predict from the exposure counts
+and is worth recording as a weak confirmation: requests, with the fewest
+decorated definitions in surviving code, moved 3 lines per task; flask,
+with 43% of its functions decorated, moved 55 and 71.
 
 ### A hung query cost two minutes
 
@@ -488,7 +528,32 @@ rejection, which is how it hid.
 And it was never a tomlkit phenomenon. Re-measuring found **six timeouts
 in each flask task**, worth roughly 700 s of a 1265 s run — 57% of that
 task's wall clock, sitting unremarked in every previously published
-flask number. Fixing it cut the six-task wall clock 38.5%.
+flask number. Across all ten tasks there were **182 timeouts** that no
+earlier run counted. Fixing it cut the benchmark's wall clock from 6.97
+hours to 3.34 hours.
+
+**The prediction this file made was half right.** Before the run it said
+tomlkit's reduction should be unchanged and its wall clock should fall
+~70%. Wall clock fell 62%. Reduction did *not* stay flat — it improved
+1.3 points — but that is the decorator fix, which shipped in the same
+run, and not a sign the timeout policy was refusing valid reductions.
+See [what the last two fixes bought](#what-the-last-two-fixes-bought)
+for why the two cannot be separated from this data.
+
+**The policy helps very unevenly, and that is worth stating.** The limit
+is `20 ×` the slowest query in a recent window, so it adapts to the
+project — but a project with genuinely slow queries gets a
+correspondingly slack limit. Per task, the effect ranges from a 69% cut
+(`tomlkit-document_dict`, 176.9 → 54.2 min) to 25%
+(`tomlkit-array_items`, 115.7 → 86.9 min), and it is the task with 52
+timeouts that improved least. Working backwards from its wall clock, its
+limit settled near 90 s where `document_dict`'s settled near 28 s,
+because `array_items` has multi-second legitimate queries pulling the
+window maximum up.
+
+Using a high percentile rather than the maximum would clamp that case
+much harder. It is the obvious next lever and it has not been measured,
+so it has not been done.
 
 ### The profile blamed the reducer, and the profile was what was broken
 
