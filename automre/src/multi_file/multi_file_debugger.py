@@ -22,7 +22,7 @@ import sys as _sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 _SRC_DIR = Path(__file__).resolve().parent.parent
 if str(_SRC_DIR) not in _sys.path:
@@ -120,13 +120,31 @@ class MultiFileDebugger:
     # round deletes nothing; this only bounds a pathological case.
     MAX_SWEEP_ROUNDS = 10
 
+    # Queries a reduction spends, per line of reducible code. Calibrated
+    # on the benchmark: requests runs 0.12, flask 0.16-0.20, tomlkit
+    # 0.31-0.47, and a 41-line toy project 0.90 because the per-file
+    # probes of Phases 2 and 5 are a fixed cost that a small tree cannot
+    # amortize. A factor that varies 8x is not something to build a
+    # countdown on, which is why it is only ever used as a rough total
+    # and why progress is reported against `work_total` below instead.
+    QUERIES_PER_REDUCIBLE_LINE = 0.20
+
     def __init__(self, verbose: bool = False, timeout: int = 60,
                  match_strategy: str = "output_match",
                  aggressive_inline: bool = False,
                  use_coverage_prune: bool = True,
                  use_learned_oracle: bool = False,
                  oracle_model_path: Optional[Path] = None,
-                 python: Optional[str] = None):
+                 python: Optional[str] = None,
+                 progress: Optional[Callable[[dict], None]] = None):
+        # Called with a plain dict at each phase boundary and after each
+        # query. Optional and best-effort: a reduction must not depend on
+        # anyone watching it. See `_emit`.
+        self.progress = progress
+        # Current phase, so per-query events can say where they came from
+        # without every phase having to pass it along.
+        self._phase = "idle"
+        self._phase_message = ""
         self.verbose = verbose
         self.timeout = timeout
         self.match_strategy = match_strategy
@@ -204,6 +222,8 @@ class MultiFileDebugger:
 
         # ------------- Phase 1
         self._log("Phase 1: analyzing project...")
+        self._emit(phase="analyze", queries=0, estimated_queries=0,
+                   message="tracing the reproduction command under coverage")
         analysis = self.analyzer.analyze(project_dir, test_command)
         self._log(f"  {len(analysis.all_files)} files: "
                   f"{len(analysis.executed_files)} executed, "
@@ -237,10 +257,38 @@ class MultiFileDebugger:
             self._line_count(f) for f in analysis.all_files)
         queries = 0
 
+        # One estimate, made once, from the tree as Phase 1 found it. It
+        # is deliberately not revised downward as files disappear: the
+        # queries a deleted file would have cost are queries the run no
+        # longer has to spend, and hiding that would turn an honest
+        # over-estimate into a progress bar that never moves.
+        estimated = self._estimate_queries(analysis.all_files, protected)
+        estimated_files = len([f for f in analysis.all_files
+                               if f.resolve() not in protected])
+
+        def _on_query(v) -> None:
+            self._emit(phase=self._phase, queries=v.queries_run,
+                       estimated_queries=estimated,
+                       timed_out_queries=v.timed_out_queries,
+                       message=self._phase_message)
+
+        self._phase = "analyze"
+        self._phase_message = "analysing"
+        validator.on_query = _on_query
+        self._emit(phase="analyzed", queries=0, estimated_queries=estimated,
+                   files=original_file_count, lines=original_line_count,
+                   reducible_files=estimated_files,
+                   protected_files=len(protected),
+                   message=(f"{original_file_count} files, "
+                            f"{original_line_count} lines; "
+                            f"~{estimated} questions to ask"))
+
         # ------------- Phase 2a — delete unreachable files (batch, with
         # safety net). If the batch delete breaks the bug (dynamic imports,
         # miscounted trace, etc.), restore and fall back to per-file
         # validated deletion.
+        self._set_phase("delete-unreachable",
+                        "deleting files the reproduction command never ran")
         self._log("Phase 2a: deleting unreachable files...")
         unreachable_deleted: List[Path] = []
         unreachable_snapshot: Dict[Path, str] = {}
@@ -276,6 +324,8 @@ class MultiFileDebugger:
                     self._log(f"  removed {f.relative_to(project_dir)}")
 
         # ------------- Phase 2b — try to delete imported-only files
+        self._set_phase("probe-imported",
+                        "probing files that are imported but never run")
         self._log("Phase 2b: probing imported-only files...")
         imported_deleted: List[Path] = []
         # Order: larger files first — biggest wins if they're truly dead.
@@ -297,6 +347,7 @@ class MultiFileDebugger:
         surviving = [f for f in analysis.all_files if f.exists()]
 
         # ------------- Phase 3 — selective inlining (leaves first)
+        self._set_phase("inline", "trying to inline modules into importers")
         self._log("Phase 3: inlining and collapsing files...")
         surviving_set = set(surviving)
         # Restrict dep graph to survivors.
@@ -354,6 +405,8 @@ class MultiFileDebugger:
                               "(bug broke)")
 
         # ------------- Phase 4 — per-file HDD-E under project validation
+        self._set_phase("reduce-files",
+                        "removing definitions and statements, file by file")
         self._log("Phase 4: intra-file reduction...")
         per_file_reduction: Dict[Path, tuple] = {}
         oracle_skipped_attempts = 0
@@ -361,6 +414,20 @@ class MultiFileDebugger:
         final_survivors = [f for f in analysis.all_files if f.exists()]
         # Prioritize larger files first so big wins land early.
         final_survivors.sort(key=self._largest_first)
+
+        # Progress is reported against lines-to-examine rather than
+        # queries, because this is the quantity that is actually known in
+        # advance. Phase 4b is ~97% of a run's queries and it walks this
+        # list once, so "lines examined / lines to examine" is a real
+        # fraction of the work, where a query estimate is a guess whose
+        # per-line factor varies eightfold across projects.
+        work_total = sum(self._line_count(f) for f in final_survivors
+                         if f.resolve() not in protected)
+        work_done = 0
+        self._emit(phase=self._phase, queries=validator.queries_run,
+                   estimated_queries=estimated,
+                   work_done=0, work_total=work_total,
+                   message=f"{work_total} lines to examine")
 
         # Phase 1's coverage described the original file layout. After
         # Phase 3 inlining, importers now contain code that never ran
@@ -382,6 +449,14 @@ class MultiFileDebugger:
                 continue
             original_source = f.read_text()
             original_lines = len(original_source.splitlines())
+            self._phase_message = (
+                f"reducing {f.relative_to(project_dir)} "
+                f"({original_lines} lines)")
+            self._emit(phase=self._phase, queries=validator.queries_run,
+                       estimated_queries=estimated,
+                       work_done=work_done, work_total=work_total,
+                       current_file=str(f.relative_to(project_dir)),
+                       message=self._phase_message)
             # Coverage for this file as it currently stands. Phase 4a may
             # shift it below; Phase 4b then consumes whatever survives.
             file_executed: Optional[Set[int]] = (
@@ -458,10 +533,15 @@ class MultiFileDebugger:
                                         file_path=f,
                                         executed_lines=file_executed)
             except Exception as exc:
+                # Counted as done either way: this file will not be
+                # revisited, so leaving it out would stall the reported
+                # progress on a file nothing is working on.
+                work_done += original_lines
                 self._log(f"  {f.relative_to(project_dir)}: reduction "
                           f"errored ({exc}); leaving as-is")
                 continue
 
+            work_done += original_lines
             queries += result.stats.queries
             oracle_skipped_attempts += result.stats.oracle_skipped
             f.write_text(result.minimized_code)
@@ -477,6 +557,8 @@ class MultiFileDebugger:
         # extra round costs one query per surviving file, and the tree is
         # small by now — the round that finds nothing is a handful of
         # queries.
+        self._set_phase("final-sweep",
+                        "retrying whole-file deletion now imports are gone")
         self._log("Phase 5: final file sweep...")
         for _ in range(self.MAX_SWEEP_ROUNDS):
             swept, sweep_queries = self._sweep_deletable_files(
@@ -491,6 +573,11 @@ class MultiFileDebugger:
         # ------------- Summarize
         final_files = [f for f in analysis.all_files if f.exists()]
         final_line_count = sum(self._line_count(f) for f in final_files)
+
+        self._set_phase("done", (
+            f"{original_file_count} files / {original_line_count} lines "
+            f"→ {len(final_files)} files / {final_line_count} lines "
+            f"in {validator.queries_run} questions"))
 
         return MultiFileReductionResult(
             project_dir=project_dir,
@@ -695,3 +782,38 @@ class MultiFileDebugger:
     def _log(self, msg: str) -> None:
         if self.verbose:
             print(msg)
+
+    # ------------------------------------------------------ progress
+
+    def _emit(self, **fields) -> None:
+        """Report progress, if anyone asked to hear it.
+
+        Swallows observer failures for the same reason `on_query` does: a
+        reduction that fails because a progress bar raised would be a
+        reduction ruined by its own instrumentation.
+        """
+        if self.progress is None:
+            return
+        try:
+            self.progress(dict(fields))
+        except Exception:
+            pass
+
+    def _set_phase(self, phase: str, message: str) -> None:
+        self._phase = phase
+        self._phase_message = message
+        self._emit(phase=phase, message=message)
+
+    def _estimate_queries(self, files: List[Path],
+                          protected: Set[Path]) -> int:
+        """Rough total-query estimate, for an ETA and nothing else.
+
+        Reducible lines are the denominator that matters: protected files
+        are never asked about, so counting them would inflate every
+        estimate by the size of the test suite. The per-line factor is
+        calibrated on the benchmark and is only good to a factor of two —
+        see QUERIES_PER_REDUCIBLE_LINE. Callers should present a range.
+        """
+        reducible = sum(self._line_count(f) for f in files
+                        if f.exists() and f.resolve() not in protected)
+        return max(1, int(reducible * self.QUERIES_PER_REDUCIBLE_LINE))

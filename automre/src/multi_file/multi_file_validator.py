@@ -22,7 +22,7 @@ from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Deque, Dict, Iterator, List, Optional
+from typing import Callable, Deque, Dict, Iterator, List, Optional
 
 _SRC_DIR = Path(__file__).resolve().parent.parent
 if str(_SRC_DIR) not in _sys.path:
@@ -96,6 +96,15 @@ class MultiFileValidator:
         # otherwise indistinguishable from an ordinary rejection, which is
         # how the cost above went unnoticed for so long.
         self.timed_out_queries = 0
+        # Every oracle question in a reduction comes through _run, so this
+        # is the one place a live query count can be exact. The debugger's
+        # own tally is assembled from what each phase reports and is only
+        # correct once that phase returns.
+        self.queries_run = 0
+        # Optional observer, called with this validator after every query.
+        # Used to drive progress reporting without threading a callback
+        # through six phases.
+        self.on_query: Optional[Callable[["MultiFileValidator"], None]] = None
         # Delegate output matching to the existing single-file Validator so
         # we get identical error-type / message semantics.
         self._oracle = Validator(match_strategy=match_strategy,
@@ -193,6 +202,18 @@ class MultiFileValidator:
     # ------------------------------------------------------ internals
 
     def _run(self) -> ProjectRunResult:
+        result = self._run_once()
+        self.queries_run += 1
+        if self.on_query is not None:
+            try:
+                self.on_query(self)
+            except Exception:
+                # An observer is for reporting. It must never be able to
+                # change the outcome of a reduction, including by failing.
+                pass
+        return result
+
+    def _run_once(self) -> ProjectRunResult:
         limit = self.query_timeout
         started = time.monotonic()
         try:

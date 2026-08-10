@@ -72,3 +72,10 @@ evaluation/oracle_training_data.jsonl
 
 # Held-out oracle model: derived from the gitignored training JSONL.
 evaluation/heldout_oracle_model.pkl
+
+# Web app
+web/frontend/node_modules/
+web/frontend/.next/
+web/frontend/next-env.d.ts
+web/frontend/.vercel
+web/frontend/*.tsbuildinfo

@@ -1,0 +1,207 @@
+/* One stylesheet, plain CSS, no framework. The page is a single column
+   of steps; there is not enough here to justify a build-time style
+   system, and a reader can hold all of it in their head. */
+
+:root {
+  --bg: #fbfbfa;
+  --panel: #ffffff;
+  --ink: #17181c;
+  --muted: #6b6f76;
+  --line: #e3e4e8;
+  --accent: #2f6f4e;
+  --accent-soft: #eaf3ee;
+  --warn: #8a5a1a;
+  --warn-soft: #fdf3e3;
+  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131417;
+    --panel: #1a1c20;
+    --ink: #ecedef;
+    --muted: #9aa0a8;
+    --line: #2b2e34;
+    --accent: #6cc196;
+    --accent-soft: #1d2a24;
+    --warn: #e0b070;
+    --warn-soft: #2a2318;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.6 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 48px 24px 96px;
+}
+
+h1 { font-size: 26px; margin: 0 0 8px; letter-spacing: -0.01em; }
+h2 { font-size: 15px; margin: 0 0 4px; }
+p { margin: 0 0 12px; }
+.lede { color: var(--muted); margin-bottom: 32px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+code, .mono { font-family: var(--mono); font-size: 13px; }
+
+/* Steps ------------------------------------------------------------- */
+
+.step {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.step[data-state='waiting'] { opacity: 0.55; }
+.step-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.step-num {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 1px 8px;
+}
+
+/* Drop zone --------------------------------------------------------- */
+
+.drop {
+  border: 1.5px dashed var(--line);
+  border-radius: 8px;
+  padding: 28px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.drop:hover, .drop[data-over='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.drop input { display: none; }
+
+/* Command picker ---------------------------------------------------- */
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 14px; }
+.chip {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip:hover { border-color: var(--accent); }
+.chip[data-active='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+input[type='text'] {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+button.primary {
+  margin-top: 14px;
+  background: var(--accent);
+  color: #fff;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+button.primary:disabled { opacity: 0.45; cursor: not-allowed; }
+button.link {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0;
+}
+
+/* Progress ---------------------------------------------------------- */
+
+.bar {
+  height: 6px;
+  background: var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 14px 0 10px;
+}
+.bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+.bar[data-indeterminate='true'] span {
+  width: 35% !important;
+  animation: slide 1.6s ease-in-out infinite;
+}
+@keyframes slide {
+  0% { margin-left: -35%; }
+  100% { margin-left: 100%; }
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+.stat { border-top: 1px solid var(--line); padding-top: 8px; }
+.stat b { display: block; font-size: 19px; font-weight: 600; }
+.stat span { font-size: 12px; color: var(--muted); }
+
+.note {
+  background: var(--warn-soft);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warn);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin-top: 14px;
+}
+.error {
+  border-left-color: #b4453a;
+  background: rgba(180, 69, 58, 0.08);
+}
+
+footer {
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--muted);
+}
+footer a { color: inherit; }

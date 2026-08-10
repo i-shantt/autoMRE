@@ -1,0 +1,32 @@
+# fly.toml — deploy the reduction worker
+#
+#   fly launch --no-deploy --name automre-worker
+#   fly deploy --dockerfile web/worker/Dockerfile
+#
+# Then point the frontend at it: WORKER_URL=https://automre-worker.fly.dev
+
+app = "automre-worker"
+primary_region = "iad"
+
+[build]
+  dockerfile = "web/worker/Dockerfile"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # A reduction is a long job held in this process's memory, so the
+  # machine must not be stopped between polls. auto_start is fine;
+  # auto_stop is not.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  # Reduction is subprocess-bound, not memory-bound, but each job builds
+  # a venv and installs the uploaded project into it, which wants room.
+  cpu_kind = "shared"
+  cpus = 2
+  memory_mb = 2048
+
+[env]
+  MAX_CONCURRENT = "1"
