@@ -84,6 +84,18 @@ below](#the-halving-descent).
 
 ## Try it
 
+### In half a minute
+
+```bash
+pip install -e .
+./entrypoint.sh
+```
+
+Runs the test suite, then reduces a bundled four-file example down to
+the six lines that still raise the same `TypeError`. It does not
+reproduce the benchmark below — that clones three repositories and takes
+hours — it prints the command for it.
+
 ### In a browser
 
 `web/` contains a small web app: drop in a zipped project, name the
@@ -115,7 +127,7 @@ same path entry. From the repo root the module form fails with
 ### The rest
 
 ```bash
-# Tests (62, ~22 s)
+# Tests (70, ~21 s)
 python3 -m pytest automre/tests/
 
 # Full benchmark. Provisions a pinned venv on first run.
@@ -714,8 +726,11 @@ automre/src/
     multi_file_debugger.py    orchestrator, oracle-file protection, progress
   ml/                       learned removability oracle (optional extra)
 automre/tests/              soundness, vacuity, and unit tests
+automre/examples/           small projects with real bugs, used by
+                            entrypoint.sh and by the tests
 automre.py                  convenience shim; see the note above on why
                             `python3 -m automre.src.cli` fails beside it
+entrypoint.sh               tests plus one example reduction, ~30 s
 evaluation/
   gistify_runner.py         benchmark harness
   gistify_tasks.json        10-task manifest (requests, flask, tomlkit)

@@ -1,242 +1,141 @@
 #!/bin/bash
-# autoMRE: Automated Bug Reproduction Minimization
-# Entrypoint script for full reproduction of all results
-# Usage: ./entrypoint.sh [command]
+# autoMRE: one command to see the tool work on this machine.
+#
+# Runs the test suite and reduces a bundled example project, which
+# together take about half a minute. It does not reproduce the benchmark
+# in README.md — that is ten tasks against three cloned repositories and
+# takes hours — it prints the command for it instead.
+#
+# Usage: ./entrypoint.sh [test|example|all|help]
 
-set -e  # Exit on error
+set -e
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_NAME="autoMRE"
 
-echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  $PROJECT_NAME - Reproduction Script${NC}"
-echo -e "${BLUE}========================================${NC}"
-echo ""
+print_section() { echo -e "${YELLOW}>> $1${NC}"; }
+print_success() { echo -e "${GREEN}✓ $1${NC}"; }
+print_error()   { echo -e "${RED}✗ $1${NC}"; }
 
-# Function to print section headers
-print_section() {
-    echo -e "${YELLOW}>> $1${NC}"
-}
-
-# Function to print success messages
-print_success() {
-    echo -e "${GREEN}✓ $1${NC}"
-}
-
-# Function to print error messages
-print_error() {
-    echo -e "${RED}✗ $1${NC}"
-}
-
-# Check Python version
-check_python() {
-    print_section "Checking Python version..."
-    if command -v python3 &> /dev/null; then
-        PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
-        echo "  Found Python $PYTHON_VERSION"
-        print_success "Python is available"
-    else
-        print_error "Python 3 is not installed"
+check_env() {
+    print_section "Checking the environment..."
+    if ! command -v python3 &> /dev/null; then
+        print_error "python3 is not installed"
         exit 1
     fi
-}
+    echo "  Python $(python3 --version 2>&1 | awk '{print $2}')"
 
-# Install dependencies
-install_deps() {
-    print_section "Installing dependencies..."
-    cd "$SCRIPT_DIR"
-
-    # Install required packages
-    python3 -m pip install tree-sitter tree-sitter-python coverage --quiet
-
-    print_success "Dependencies installed"
-}
-
-# Run unit tests
-run_tests() {
-    print_section "Running unit tests..."
-    cd "$SCRIPT_DIR"
-
-    # Set PYTHONPATH to include the src directory so modules can import each other
-    export PYTHONPATH="$SCRIPT_DIR/automre/src"
-
-    # Test parser
-    echo "  Testing parser..."
-    python3 -c "
-from parser import PythonParser
-parser = PythonParser()
-code = 'def foo():\n    pass'
-tree = parser.parse_source(code)
-print('    Parser: OK')
-"
-
-    # Test tracer
-    echo "  Testing tracer..."
-    python3 -c "
-from tracer import ExecutionTracer
-tracer = ExecutionTracer()
-print('    Tracer: OK')
-"
-
-    # Test validator
-    echo "  Testing validator..."
-    python3 -c "
-from validator import Validator
-validator = Validator()
-print('    Validator: OK')
-"
-
-    # Test reducer
-    echo "  Testing reducer..."
-    python3 -c "
-from reducer import HybridDeltaDebugger
-reducer = HybridDeltaDebugger()
-print('    Reducer: OK')
-"
-
-    # Restore PYTHONPATH
-    unset PYTHONPATH
-
-    print_success "All tests passed"
-}
-
-# Run example reduction
-run_example() {
-    print_section "Running example reduction..."
-    cd "$SCRIPT_DIR"
-
-    EXAMPLE_DIR="automre/examples/simple_single_file"
-    ORIGINAL="$EXAMPLE_DIR/bug_original.py"
-    MINIMIZED="$EXAMPLE_DIR/bug_output.py"
-
-    echo "  Original: $ORIGINAL"
-    echo "  Lines in original: $(wc -l < $ORIGINAL)"
-
-    # Run reduction
-    python3 automre.py reduce "$ORIGINAL" -o "$MINIMIZED" -v
-
-    if [ -f "$MINIMIZED" ]; then
-        echo "  Lines in minimized: $(wc -l < $MINIMIZED)"
-        print_success "Reduction complete"
-    else
-        print_error "Minimization failed"
+    # Deliberately does not install anything. A script that quietly
+    # writes to the interpreter it happens to find is a worse trade than
+    # one line of instruction.
+    if ! python3 -c "import tree_sitter, tree_sitter_python, coverage" \
+            2> /dev/null; then
+        print_error "autoMRE's dependencies are missing. Install the package first:"
+        echo ""
+        echo "    python3 -m venv .venv && source .venv/bin/activate"
+        echo "    pip install -e ."
+        echo ""
+        exit 1
     fi
+    print_success "Dependencies present"
 }
 
-# Run evaluation
-run_evaluation() {
-    print_section "Running evaluation on example bugs..."
+run_tests() {
+    print_section "Running the test suite..."
     cd "$SCRIPT_DIR"
-
-    EVAL_DIR="evaluation"
-    EXAMPLES_DIR="automre/examples/simple_single_file"
-
-    # Run comparison of all algorithms
-    echo "  Comparing all algorithms..."
-    python3 "$EVAL_DIR/simple_runner.py" \
-        --examples "$EXAMPLES_DIR" \
-        --output "$EVAL_DIR/comparison_results.json" \
-        --compare-all
-
-    print_success "Evaluation complete"
-    echo ""
-    echo "  Results saved to:"
-    echo "    - $EVAL_DIR/comparison_results.json"
+    python3 -m pytest automre/tests/ -q
+    print_success "Tests passed"
 }
 
-# Display results summary
-show_results() {
-    print_section "Results Summary"
+run_example() {
+    print_section "Reducing a bundled example project..."
     cd "$SCRIPT_DIR"
 
-    echo ""
-    echo "  Evaluation Results (example bugs):"
-    echo "  -----------------------------------"
+    local example="$SCRIPT_DIR/automre/examples/multi_file/project1_cross_file_type_error"
+    local out
+    out="$(mktemp -d)"
+    trap 'rm -rf "$out"' RETURN
 
-    for result_file in evaluation/results_*.json; do
-        if [ -f "$result_file" ]; then
-            basename=$(basename "$result_file" .json)
-            echo "  $basename:"
-            python3 -c "
-import json
-with open('$result_file') as f:
-    data = json.load(f)
-    if 'summary' in data:
-        s = data['summary']
-        print(f\"    Success Rate: {s.get('success_rate', 'N/A')}\")
-        print(f\"    Avg Reduction: {s.get('avg_reduction_rate', 'N/A'):.1%}\")
-        print(f\"    Avg Time: {s.get('avg_time', 'N/A'):.2f}s\")
-        print(f\"    Avg Queries: {s.get('avg_queries', 'N/A'):.1f}\")
-" 2>/dev/null || echo "    (raw data available)"
-        fi
+    echo "  Project: automre/examples/multi_file/project1_cross_file_type_error"
+    echo "  Bug reproduces with: python3 main.py"
+    echo ""
+
+    # --output into a temp directory: the example is checked in, and a
+    # demonstration should not leave a second copy of it in the tree.
+    # Run through the shim rather than the `automre` console script,
+    # which is only on PATH if the active environment installed it.
+    python3 "$SCRIPT_DIR/automre.py" reduce-project "$example" \
+        -c "python3 main.py" --output "$out/reduced" --force
+
+    echo ""
+    echo "  Reduced project:"
+    for f in "$out/reduced"/*.py; do
+        echo "    --- $(basename "$f") ---"
+        sed 's/^/    /' "$f"
     done
-
-    echo ""
-    print_success "All results reproduced successfully!"
+    print_success "Example reduced"
 }
 
-# Show usage information
+show_benchmark() {
+    print_section "Reproducing the published numbers"
+    cat <<'EOF'
+  The results table in README.md is ten pytest tasks across requests,
+  flask and tomlkit. It clones those repositories, provisions a pinned
+  virtualenv, and took 3.3 hours on an M4 MacBook Air:
+
+      python3 evaluation/gistify_runner.py
+
+  One repository's worth (requests was 15 minutes of that):
+
+      python3 evaluation/gistify_runner.py --only requests
+
+  Results land in evaluation/results_gistify_*.json. Note that several
+  older files in that directory are withdrawn measurements, kept for the
+  record and listed as void under "Withdrawn results" in README.md — do
+  not read numbers out of them.
+EOF
+}
+
 show_usage() {
     echo "Usage: ./entrypoint.sh [command]"
     echo ""
     echo "Commands:"
-    echo "  all         Run complete reproduction (default)"
-    echo "  test        Run unit tests only"
-    echo "  example     Run example reduction only"
-    echo "  eval        Run evaluation only"
-    echo "  help        Show this help message"
-    echo ""
-    echo "Examples:"
-    echo "  ./entrypoint.sh              # Full reproduction"
-    echo "  ./entrypoint.sh test         # Run tests only"
-    echo "  ./entrypoint.sh example      # Run example only"
+    echo "  all         Tests, then the example reduction (default)"
+    echo "  test        Test suite only"
+    echo "  example     Example reduction only"
+    echo "  benchmark   Print how to reproduce the published numbers"
+    echo "  help        This message"
 }
 
-# Main execution
 main() {
-    COMMAND=${1:-all}
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "${BLUE}  autoMRE${NC}"
+    echo -e "${BLUE}========================================${NC}"
+    echo ""
 
-    case "$COMMAND" in
+    case "${1:-all}" in
         all)
-            check_python
-            install_deps
+            check_env
             run_tests
             run_example
-            run_evaluation
-            show_results
+            echo ""
+            show_benchmark
             ;;
-        test)
-            check_python
-            install_deps
-            run_tests
-            ;;
-        example)
-            check_python
-            install_deps
-            run_example
-            ;;
-        eval|evaluation)
-            check_python
-            install_deps
-            run_evaluation
-            ;;
-        help|--help|-h)
-            show_usage
-            ;;
+        test)      check_env; run_tests ;;
+        example)   check_env; run_example ;;
+        benchmark) show_benchmark ;;
+        help|--help|-h) show_usage ;;
         *)
-            print_error "Unknown command: $COMMAND"
+            print_error "Unknown command: $1"
             show_usage
             exit 1
             ;;
     esac
 }
 
-# Run main function
 main "$@"
