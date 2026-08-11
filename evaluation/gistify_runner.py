@@ -185,13 +185,19 @@ class GistifyResult:
 
 # ------------------------------------------------------------ repo mgmt
 
-def _ensure_repo(task: GistifyTask, verbose: bool = False) -> Path:
-    """Clone the task's repo into the cache and check out the commit."""
-    _REPO_CACHE.mkdir(exist_ok=True)
+def _ensure_repo(task: GistifyTask, verbose: bool = False,
+                 cache_dir: Optional[Path] = None) -> Path:
+    """Clone the task's repo into the cache and check out the commit.
+
+    `cache_dir` exists so a caller working through many instances — or a
+    test — can keep its clones out of the shared cache.
+    """
+    cache = Path(cache_dir) if cache_dir else _REPO_CACHE
+    cache.mkdir(parents=True, exist_ok=True)
     slug = task.repo.rstrip("/").split("/")[-1]
     if slug.endswith(".git"):
         slug = slug[:-4]
-    repo_dir = _REPO_CACHE / slug
+    repo_dir = cache / slug
     if not repo_dir.exists():
         if verbose:
             print(f"  cloning {task.repo}...")
