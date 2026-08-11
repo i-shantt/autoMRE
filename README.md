@@ -896,9 +896,16 @@ never seen, reduced with `--provision-per-task`:
 |---|---:|
 | files | 152 → **18** |
 | lines | 54,019 → **4,156** (**92.31%**) |
+| reducible-only | 51,771 → **1,908** (**96.31%**) |
 | execution fidelity | **1/1** |
 | queries | 5,228 |
 | wall clock | 53 min |
+
+The reducible-only figure is the fair comparison with the benchmark's
+95.77%, since the named test is the question and is never removable.
+That an unseen repository lands slightly *above* the tuned benchmark is
+not evidence of anything except that seaborn had more dead weight to
+shed than requests does.
 
 The interesting figure is none of those. It is **0.097 queries per
 line** — *below* the 0.11–0.48 range measured on the benchmark's
