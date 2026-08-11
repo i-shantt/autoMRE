@@ -44,6 +44,7 @@ sys.path.insert(0, str(_ROOT / "evaluation"))
 
 from multi_file import MultiFileDebugger  # noqa: E402
 from provision import check as gate_check, purge_bytecode as _purge_bytecode  # noqa: E402
+from provision import ProvisionError, provision  # noqa: E402
 from validator import Validator  # noqa: E402
 
 
@@ -154,6 +155,12 @@ class GistifyTask:
     # contain until its test_patch is applied. Empty for hand-written
     # tasks, which name a test that is already there.
     test_patch: str = ""
+    # Whether the command is expected to pass at baseline. True for the
+    # hand-written benchmark, whose tasks are passing tests. False for
+    # anything ingested: a SWE-bench instance is pinned before the fix,
+    # so its command *is* the failure, and demanding a pass would reject
+    # every one of them.
+    requires_pass: bool = True
     # The raw test identifier the instance named, kept because its
     # format decides how the command is built and only the checked-out
     # tree can settle that. See _command_for in ingest_tasks.py.
@@ -368,13 +375,19 @@ def run_task(task: GistifyTask, timeout: int = 120,
              python: Optional[str] = None,
              allow_unhealthy_baseline: bool = False,
              use_learned_oracle: bool = False,
-             oracle_model_path: Optional[str] = None) -> GistifyResult:
+             oracle_model_path: Optional[str] = None,
+             provision_env: bool = False) -> GistifyResult:
     python = python or sys.executable
     test_command = _resolve_test_command(task.test_command, python)
     print(f"  → cloning/preparing {task.task_id}...", flush=True)
     try:
         source_dir = _ensure_repo(task, verbose=verbose)
-        if not _install_repo(source_dir, python, verbose=verbose):
+        # A shared environment cannot hold twelve repositories at twelve
+        # pinned commits; their dependency sets conflict. Ingested tasks
+        # get one environment each, built beside the work copy below, so
+        # the repo install here is skipped entirely.
+        if not provision_env and not _install_repo(source_dir, python,
+                                                   verbose=verbose):
             return GistifyResult(
                 task_id=task.task_id, execution_fidelity=0,
                 original_files=0, final_files=0,
@@ -399,15 +412,34 @@ def run_task(task: GistifyTask, timeout: int = 120,
                             ".pytest_cache", "build", "dist"))
 
         # Make the copy we are about to mutate the code actually imported.
-        print(f"  → installing work copy...", flush=True)
-        if not _install_work_copy(work_dir, python):
-            return GistifyResult(
-                task_id=task.task_id, execution_fidelity=0,
-                original_files=0, final_files=0,
-                original_lines=0, final_lines=0,
-                single_file_output=False,
-                total_queries=0, time_seconds=0.0,
-                error="work-copy install failed")
+        if provision_env:
+            print(f"  → provisioning an environment for {task.task_id}...",
+                  flush=True)
+            try:
+                # Beside the work copy, never inside it: provision()
+                # refuses the latter, because the reducer would treat the
+                # environment's thousands of files as deletable material.
+                spec = provision(work_dir, Path(tmp) / "venv")
+            except ProvisionError as exc:
+                return GistifyResult(
+                    task_id=task.task_id, execution_fidelity=0,
+                    original_files=0, final_files=0,
+                    original_lines=0, final_lines=0,
+                    single_file_output=False,
+                    total_queries=0, time_seconds=0.0,
+                    error=f"provisioning failed: {exc}")
+            python = spec.python
+            test_command = _resolve_test_command(task.test_command, python)
+        else:
+            print(f"  → installing work copy...", flush=True)
+            if not _install_work_copy(work_dir, python):
+                return GistifyResult(
+                    task_id=task.task_id, execution_fidelity=0,
+                    original_files=0, final_files=0,
+                    original_lines=0, final_lines=0,
+                    single_file_output=False,
+                    total_queries=0, time_seconds=0.0,
+                    error="work-copy install failed")
 
         orig_files, orig_lines = _count_files_and_lines(work_dir)
 
@@ -419,7 +451,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
         # general case is the opposite and the gate defaults to it.
         print(f"  → checking the task is worth reducing...", flush=True)
         verdict = gate_check(work_dir, test_command, timeout=timeout,
-                             require_pass=True)
+                             require_pass=task.requires_pass)
         baseline_out, baseline_rc = verdict.baseline_output, verdict.baseline_rc
         if not verdict.ok and not allow_unhealthy_baseline:
             print(f"  → SKIP: {verdict.reason}", flush=True)
@@ -520,6 +552,11 @@ def main() -> int:
              "nothing else.")
     parser.add_argument("--timeout", type=int, default=120,
                         help="Per-command timeout in seconds")
+    parser.add_argument("--provision-per-task", action="store_true",
+        help="Build one virtualenv per task instead of sharing the "
+             "benchmark's. Required for an ingested manifest: a shared "
+             "environment cannot hold many repositories at pinned "
+             "commits, because their dependency sets conflict.")
     parser.add_argument("--output", default=None,
         help="Where to write the JSON result. Default depends on flags: "
              "results_gistify_heuristic.json or "
@@ -566,13 +603,20 @@ def main() -> int:
         print(f"[gistify] running {len(tasks)} of the manifest's tasks: "
               + ", ".join(t.task_id for t in tasks), flush=True)
 
-    if args.python:
-        bench_python = args.python
-    elif args.no_venv:
+    if args.provision_per_task:
+        # Each task builds its own; there is nothing shared to prepare,
+        # and _ensure_bench_python would install a pytest nobody uses.
         bench_python = sys.executable
+        print("[gistify] test interpreter: one provisioned per task",
+              flush=True)
     else:
-        bench_python = _ensure_bench_python(verbose=args.verbose)
-    print(f"[gistify] test interpreter: {bench_python}", flush=True)
+        if args.python:
+            bench_python = args.python
+        elif args.no_venv:
+            bench_python = sys.executable
+        else:
+            bench_python = _ensure_bench_python(verbose=args.verbose)
+        print(f"[gistify] test interpreter: {bench_python}", flush=True)
 
     results: List[GistifyResult] = []
     for task in tasks:
@@ -582,7 +626,8 @@ def main() -> int:
                      python=bench_python,
                      allow_unhealthy_baseline=args.allow_unhealthy_baseline,
                      use_learned_oracle=args.use_learned_oracle,
-                     oracle_model_path=args.oracle_model)
+                     oracle_model_path=args.oracle_model,
+                     provision_env=args.provision_per_task)
         icon = "PASS" if r.execution_fidelity else "FAIL"
         if r.error:
             print(f"  {icon} error: {r.error}")

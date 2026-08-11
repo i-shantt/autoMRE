@@ -136,6 +136,9 @@ def to_task(record: Dict[str, Any]) -> GistifyTask:
         test_command=["python3", "-m", "pytest", tests[0], "-x", "-q"],
         test_id=tests[0],
         test_patch=str(record.get("test_patch") or ""),
+        # An ingested instance is pinned before the fix, so its command
+        # is the failure. Demanding a pass would reject all of them.
+        requires_pass=False,
         notes=f"ingested; {len(tests)} test(s) named, first one used",
     )
 
