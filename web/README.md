@@ -148,9 +148,10 @@ of this UI is that it does not pretend to.
 The unit of work is the **query**: one run of your test command. How
 many a project needs depends on how much of it turns out to be
 removable, which is only learned by asking — measured across the
-benchmark repos, the cost varies from 0.12 to 0.90 queries per line, an
-eightfold spread. So the query count is displayed as a count of work
-done, never as a fraction of a total.
+benchmark repos, the cost varies from 0.11 to 0.48 queries per line, a
+fourfold spread, and a 54k-line repository outside the benchmark came in
+under the bottom of that range at 0.097. So the query count is displayed
+as a count of work done, never as a fraction of a total.
 
 The progress bar instead tracks **lines examined out of lines to
 examine**. The reducer walks the surviving files once in Phase 4, which
