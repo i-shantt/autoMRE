@@ -29,6 +29,8 @@ then faithfully preserves *the collection error*.
 
 from __future__ import annotations
 
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -61,6 +63,60 @@ _DEV_REQUIREMENTS = (
 
 _PIP_TIMEOUT = 900
 _VENV_TIMEOUT = 180
+
+# pip ends a failed install with boilerplate, so the last line of output
+# is reliably the least informative line in it. Three real rejections
+# from a fifteen-instance ingest read "note: This error originates from a
+# subprocess, and is likely not a problem with pip.", "hint: See above
+# for details." and "╰─> matplotlib" — one of which points at output the
+# caller never sees. Skip the furniture and look for the diagnosis.
+_NOISE = (
+    "note: This error originates from a subprocess",
+    "hint: See above for details",
+    "See above for output",
+    "full command:", "cwd:", "note: This is an issue with the package",
+)
+_SIGNAL = (
+    "error:", "ERROR:", "Error:", "error ", "Traceback",
+    "No matching distribution", "Could not find a version",
+    "Failed building wheel", "Failed to build",
+    "requires Python", "is not supported", "SyntaxError",
+    "ModuleNotFoundError", "ImportError", "fatal:",
+    "command not found", "No such file or directory",
+)
+
+
+def _diagnosis(output: str) -> str:
+    """The line from a failed step most likely to explain it.
+
+    Searches backwards for something that reads like an error, because
+    the interesting line is usually near the end but almost never *is*
+    the end.
+    """
+    lines = [ln.strip() for ln in output.strip().splitlines()]
+    lines = [ln for ln in lines
+             if ln and not ln.startswith(("╰", "╷", "│", "["))
+             and not any(n in ln for n in _NOISE)]
+    if not lines:
+        return "no output"
+
+    # An exception line is the root cause; pip's own "Failed building
+    # wheel for X" is the symptom. Prefer the cause and name the package
+    # alongside it, since a failed install rarely says which one broke.
+    package = ""
+    for line in reversed(lines):
+        match = re.search(r"Failed building wheel for (\S+)", line)
+        if match:
+            package = f" (building {match.group(1)})"
+            break
+    for line in reversed(lines):
+        if re.match(r"^[A-Za-z_.]*(Error|Exception)\b.*:", line):
+            return (line + package)[:300]
+
+    for line in reversed(lines):
+        if any(s in line for s in _SIGNAL):
+            return line[:300]
+    return lines[-1][:300]
 
 
 class ProvisionError(Exception):
@@ -234,12 +290,37 @@ def _pip(spec: EnvSpec, name: str, args: List[str],
                 cwd=cwd, timeout=_PIP_TIMEOUT, fatal=fatal)
 
 
+def _build_env() -> dict:
+    """The environment a build runs in.
+
+    A project is provisioned from a copy that deliberately has no .git —
+    the reducer should never see a repository's history as deletable
+    material. Projects versioned by setuptools-scm read their version out
+    of that history, so without this they fail to build at all, which is
+    how pytest was rejected from an ingest run with "LookupError:
+    setuptools-scm was unable to detect version".
+
+    The version is deliberately high rather than 0.0.0. A project that
+    reads its own version usually does so to enforce a *minimum*: pytest's
+    pyproject sets `minversion = 2.0`, so pretending 0.0.0 made pytest
+    refuse to run its own test suite with "'minversion' requires
+    pytest-2.0, actual pytest-0.0.0". Projects asserting an upper bound on
+    themselves are rare enough to accept as the trade.
+
+    A caller who has already set the variable keeps their value, which is
+    the way to supply a real version when one is known.
+    """
+    env = dict(os.environ)
+    env.setdefault("SETUPTOOLS_SCM_PRETEND_VERSION", "9999.0.0")
+    return env
+
+
 def _run(spec: EnvSpec, name: str, argv: List[str],
          cwd: Optional[Path] = None, timeout: int = _PIP_TIMEOUT,
          fatal: bool = False) -> Step:
     try:
         proc = subprocess.run(argv, cwd=cwd, capture_output=True, text=True,
-                              timeout=timeout)
+                              timeout=timeout, env=_build_env())
         step = Step(name, argv, proc.returncode,
                     (proc.stderr or "") + (proc.stdout or ""))
     except subprocess.TimeoutExpired:
@@ -249,10 +330,9 @@ def _run(spec: EnvSpec, name: str, argv: List[str],
 
     spec.steps.append(step)
     if fatal and not step.ok:
-        tail = step.output.strip().splitlines()
         raise ProvisionError(
             f"could not provision the environment at step '{name}': "
-            + (tail[-1] if tail else "no output"))
+            + _diagnosis(step.output))
     return step
 
 

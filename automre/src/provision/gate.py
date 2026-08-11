@@ -34,6 +34,7 @@ if str(_SRC_DIR) not in _sys.path:
 from validator import Validator  # noqa: E402
 
 from .discovery import node_id_exists  # noqa: E402
+from .environment import _diagnosis  # noqa: E402
 
 
 @dataclass
@@ -135,19 +136,34 @@ def baseline_health(output: str, rc: int,
     """
     lowered = output.lower()
 
+    # Each reason carries the failing line, because the category alone
+    # sends people to the wrong place. Ingesting fifteen SWE-bench
+    # instances, two were rejected as "bad node id?" when the node ids
+    # were fine and Python 3.13 was not: sphinx imports `imghdr`, removed
+    # in 3.13, and xarray reads `np.unicode_`, removed in NumPy 2.0. A
+    # reason that guesses is worse than one that quotes.
     if rc == 4:
-        return "pytest usage error (rc=4) — bad node id?"
+        return _with_detail("pytest usage error (rc=4)", output)
     if rc == 5:
-        return "no tests collected (rc=5)"
+        return _with_detail("no tests collected (rc=5)", output)
     if "no tests ran" in lowered:
-        return "no tests ran"
+        return _with_detail("no tests ran", output)
     if "error: not found:" in lowered:
         return "test node id not found"
     if re.search(r"\b\d+ errors? in [\d.]+s", lowered):
-        return "collection/setup error before any assertion"
+        return _with_detail("collection/setup error before any assertion",
+                            output)
     if require_pass and rc != 0:
         return f"target test did not pass (rc={rc})"
     return None
+
+
+def _with_detail(reason: str, output: str) -> str:
+    """`reason`, plus the line from the output that explains it."""
+    detail = _diagnosis(output)
+    if detail in ("no output", reason):
+        return reason
+    return f"{reason}: {detail}"
 
 
 def _reduction_would_be_vacuous(project_dir: Path, command: List[str],
