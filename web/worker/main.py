@@ -143,6 +143,9 @@ def job_result(job_id: str):
     job = registry.get(job_id)
     if job is None:
         raise HTTPException(404, "no such job")
+    if job.expired:
+        raise HTTPException(410, "this result has expired and its files have "
+                                 "been deleted; start the reduction again")
     if job.result_zip is None or not job.result_zip.exists():
         raise HTTPException(409, f"no result yet (status: {job.status})")
     return FileResponse(job.result_zip, media_type="application/zip",

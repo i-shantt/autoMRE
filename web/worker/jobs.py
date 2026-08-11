@@ -44,6 +44,16 @@ MAX_FILES = 5000
 # partly-reduced project is a useful result and a lost job is not.
 MAX_JOB_SECONDS = 60 * 60
 
+# How long a finished job keeps its disk, and how many finished jobs stay
+# in the table at all. A job owns a temp directory holding a virtualenv,
+# the extracted project and the result zip — of the order of a hundred
+# megabytes — and nothing else on this machine deletes it. Without a
+# retention policy the worker fills its own disk after a handful of
+# reductions and then fails at `python -m venv`, reporting a problem with
+# the machine for what is really a problem with this file.
+RESULT_TTL_SECONDS = 60 * 60
+MAX_REMEMBERED_JOBS = 200
+
 # How far the ETA range is spread either side of the point estimate. The
 # per-line query factor is calibrated across repos that differ by a
 # factor of four (requests 0.12 q/line, tomlkit 0.47), so a tight range
@@ -87,6 +97,9 @@ class Job:
 
     work_dir: Optional[Path] = None
     result_zip: Optional[Path] = None
+    # Set once the job's disk has been reclaimed, so a late download can
+    # be told the result expired rather than that it never existed.
+    expired: bool = False
     _cancel: threading.Event = field(default_factory=threading.Event)
 
     # -------------------------------------------------- derived views
@@ -153,6 +166,7 @@ class Job:
             "final_lines": self.final_lines,
             "protected_lines": self.protected_lines,
             "has_result": self.result_zip is not None,
+            "expired": self.expired,
         }
 
 
@@ -274,8 +288,44 @@ class JobRegistry:
         job._cancel.set()
         return True
 
+    def sweep(self) -> None:
+        """Reclaim the disk of jobs whose results have expired.
+
+        Two tiers, because they answer different questions. A finished
+        job loses its directory after RESULT_TTL_SECONDS but keeps its
+        row, so a late poll gets "the result has expired" rather than
+        "no such job" — the difference between an answer and a mystery.
+        The row itself is dropped only once there are more than
+        MAX_REMEMBERED_JOBS of them, which bounds the table on a worker
+        that runs for weeks.
+
+        Called when work arrives rather than on a timer: a sweeper thread
+        would be a second thing to reason about for a saving that only
+        matters at the moment a new job wants disk.
+        """
+        now = time.time()
+        with self._lock:
+            finished = sorted((j for j in self._jobs.values() if j.finished_at),
+                              key=lambda j: j.finished_at)
+            expired = [j for j in finished
+                       if now - j.finished_at > RESULT_TTL_SECONDS]
+            surplus = finished[:max(0, len(finished) - MAX_REMEMBERED_JOBS)]
+            for job in surplus:
+                self._jobs.pop(job.job_id, None)
+            doomed = {j.job_id: (j, j.work_dir)
+                      for j in expired + surplus if j.work_dir}.values()
+            for job, _ in doomed:
+                job.work_dir = None
+                job.result_zip = None
+                job.expired = True
+        # Outside the lock: rmtree of a virtualenv is thousands of
+        # unlinks, and polls should not queue behind it.
+        for _, directory in doomed:
+            shutil.rmtree(directory, ignore_errors=True)
+
     def submit(self, archive: Path, command: List[str],
                python: Optional[str] = None) -> Job:
+        self.sweep()
         job = Job(job_id=uuid.uuid4().hex[:12], command=command)
         with self._lock:
             self._jobs[job.job_id] = job

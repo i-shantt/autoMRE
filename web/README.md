@@ -97,7 +97,11 @@ What is in place:
 - archive entries that resolve outside the extraction directory are
   refused, so a zip cannot write to `../../anywhere`;
 - each job gets a fresh temp directory and its own virtualenv;
-- a job is killed at one hour.
+- a job is killed at one hour;
+- a finished job's directory — virtualenv, project, result zip, on the
+  order of a hundred megabytes — is deleted an hour after it finishes,
+  and a download after that is told the result expired rather than being
+  handed a stale one.
 
 What is **not** in place, and what you should add before pointing this
 at the public internet:
