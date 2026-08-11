@@ -147,6 +147,17 @@ class GistifyTask:
     commit: str
     test_command: List[str]
     notes: str = ""
+    # A unified diff applied after checkout, before anything is installed
+    # or reduced. Ingested SWE-bench-shaped instances need this: their
+    # commit is pinned before the fix *and before the test exists*, so
+    # 62.6% of SWE-bench Verified names a test that the checkout does not
+    # contain until its test_patch is applied. Empty for hand-written
+    # tasks, which name a test that is already there.
+    test_patch: str = ""
+    # The raw test identifier the instance named, kept because its
+    # format decides how the command is built and only the checked-out
+    # tree can settle that. See _command_for in ingest_tasks.py.
+    test_id: str = ""
     # "benchmark" tasks are scored; "train_only" tasks exist purely to
     # give the oracle more removal attempts to learn from and are never
     # evaluated. Defaults to benchmark so the scoring manifest needs no
@@ -208,8 +219,17 @@ def _ensure_repo(task: GistifyTask, verbose: bool = False,
         ["git", "-C", str(repo_dir), "fetch", "--quiet", "--tags"],
         check=False)
     subprocess.run(
-        ["git", "-C", str(repo_dir), "checkout", "--quiet", task.commit],
+        ["git", "-C", str(repo_dir), "checkout", "--quiet", "--force",
+         task.commit],
         check=True)
+    # --force above and reset here undo a previous run's test_patch.
+    # `clean` alone does not: it removes untracked files but leaves
+    # tracked ones modified, so a second run would find the patch still
+    # applied and fail to apply it again.
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "reset", "--hard", "--quiet",
+         task.commit],
+        check=False)
     subprocess.run(
         ["git", "-C", str(repo_dir), "clean", "-fdxq"],
         check=False)
@@ -227,7 +247,32 @@ def _ensure_repo(task: GistifyTask, verbose: bool = False,
         ["git", "-C", str(repo_dir), "submodule", "update", "--init",
          "--recursive", "--depth", "1"],
         check=False, capture_output=not verbose)
+
+    # The test the task names may not exist at this commit; the patch is
+    # what puts it there. Applied last, so `git clean -fdxq` above has
+    # already removed the previous instance's copy of it.
+    if task.test_patch:
+        _apply_test_patch(repo_dir, task.test_patch, verbose=verbose)
     return repo_dir
+
+
+def _apply_test_patch(repo_dir: Path, patch: str,
+                      verbose: bool = False) -> None:
+    """Apply a unified diff to the checkout, or say why it would not.
+
+    A patch that does not apply is fatal rather than skipped. Continuing
+    would hand the gate a tree missing the test it is about to look for,
+    and the rejection would name the wrong cause.
+    """
+    proc = subprocess.run(
+        ["git", "-C", str(repo_dir), "apply", "--whitespace=nowarn", "-"],
+        input=patch, text=True, capture_output=True)
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(
+            proc.returncode, "git apply",
+            output=proc.stdout, stderr=proc.stderr or "patch did not apply")
+    if verbose:
+        print("  applied test_patch")
 
 
 def _install_repo(repo_dir: Path, python: str,

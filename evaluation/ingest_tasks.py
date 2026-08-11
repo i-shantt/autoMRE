@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -46,7 +47,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT / "automre" / "src"))
 sys.path.insert(0, str(_ROOT / "evaluation"))
 
-from provision import ProvisionError, check, provision  # noqa: E402
+from provision import ProvisionError, check, locate, provision  # noqa: E402
 
 from gistify_runner import (  # noqa: E402
     GistifyTask,
@@ -129,9 +130,52 @@ def to_task(record: Dict[str, Any]) -> GistifyTask:
         task_id=str(task_id),
         repo=repo,
         commit=str(commit),
+        # Provisional. Only the checked-out tree can settle this, so
+        # ingest_one overwrites it via _command_for once the repo is on
+        # disk. Left as a sane default for callers that never clone.
         test_command=["python3", "-m", "pytest", tests[0], "-x", "-q"],
+        test_id=tests[0],
+        test_patch=str(record.get("test_patch") or ""),
         notes=f"ingested; {len(tests)} test(s) named, first one used",
     )
+
+
+# A pytest node id has a path and a "::". Django writes unittest labels,
+# "test_x (module.Class.test_x)". Sympy names the function and nothing
+# else. Measured over SWE-bench Verified: 38.8% node ids, 41.6% labels,
+# 19.6% bare names — so assuming pytest node ids reaches under two
+# instances in five.
+_LABEL = re.compile(r"^(\S+)\s+\((\S+)\)$")
+
+
+def _command_for(project: Path, test_id: str) -> List[str]:
+    """The command that runs one named test in this particular tree.
+
+    Deciding this needs the tree, not just the identifier: a repository
+    with its own test runner has to be driven through it, and whether
+    one exists is a fact about the checkout.
+    """
+    if "::" in test_id:
+        return ["python3", "-m", "pytest", test_id, "-x", "-q"]
+
+    match = _LABEL.match(test_id)
+    if match:
+        label = match.group(2)
+        # Django's suite does not run under a bare pytest: the settings,
+        # the test database and the app registry are all set up by its
+        # own runner, so the node id it names is meaningless to pytest.
+        if (project / "tests" / "runtests.py").exists():
+            return ["python3", "tests/runtests.py", label, "-v", "0"]
+        return ["python3", "-m", "unittest", label]
+
+    # A bare function name. Resolve it to a real node id if the tree has
+    # exactly one test by that name; -k is the fallback, and a poor one,
+    # because collecting the whole suite makes the output carry counts
+    # for thousands of unrelated tests.
+    matches = locate(project, test_id)
+    if len(matches) == 1:
+        return ["python3", "-m", "pytest", matches[0], "-x", "-q"]
+    return ["python3", "-m", "pytest", "-k", test_id, "-x", "-q"]
 
 
 def _test_ids(record: Dict[str, Any]) -> List[str]:
@@ -168,7 +212,12 @@ def ingest_one(task: GistifyTask, workspace: Path,
     try:
         source = _ensure_repo(task, verbose=verbose, cache_dir=cache_dir)
     except subprocess.CalledProcessError as exc:
-        result.reason = f"could not check out {task.commit}: {exc}"
+        if "apply" in str(exc.cmd):
+            detail = (exc.stderr or "").strip().splitlines()
+            result.reason = ("test_patch did not apply: "
+                             + (detail[0] if detail else "no detail"))
+        else:
+            result.reason = f"could not check out {task.commit}: {exc}"
         result.seconds = time.time() - start
         return result
 
@@ -187,6 +236,12 @@ def ingest_one(task: GistifyTask, workspace: Path,
         result.reason = str(exc)
         result.seconds = time.time() - start
         return result
+
+    # Now that the tree exists, the command can be settled properly and
+    # written back onto the task, so the manifest the runner later reads
+    # carries the command the gate actually approved.
+    if task.test_id:
+        task.test_command = _command_for(work, task.test_id)
 
     command = [spec.python] + list(task.test_command[1:])
     verdict = check(work, command, timeout=timeout)
