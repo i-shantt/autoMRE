@@ -28,7 +28,7 @@ from jobs import (
     JobError,
     JobRegistry,
     count_python,
-    detect_test_targets,
+    discover,
     project_root,
     safe_extract,
 )
@@ -98,7 +98,7 @@ async def detect(file: UploadFile = File(...)):
                 raise HTTPException(400, str(exc)) from exc
             root = project_root(dest)
             files, lines = count_python(root)
-            targets = detect_test_targets(root)
+            targets = discover(root)
             return {
                 "files": files,
                 "lines": lines,

@@ -17,7 +17,6 @@ more useful than a precise-looking number that is wrong.
 from __future__ import annotations
 
 import shutil
-import subprocess
 import sys
 import tempfile
 import threading
@@ -32,6 +31,10 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "automre" / "src"))
 
 from multi_file import MultiFileDebugger  # noqa: E402
+# `discover` is re-exported for main.py, which asks this module for its
+# imports so the sys.path bootstrap above stays in one file.
+from provision import ProvisionError, discover, provision  # noqa: E402
+from provision import check as gate_check  # noqa: E402
 
 # Upload guards. Reduction executes the code in the archive, so these are
 # the first line of defence and not merely resource limits — see
@@ -53,6 +56,11 @@ MAX_JOB_SECONDS = 60 * 60
 # the machine for what is really a problem with this file.
 RESULT_TTL_SECONDS = 60 * 60
 MAX_REMEMBERED_JOBS = 200
+
+# Left behind by the thousands of test runs a reduction makes, and not
+# part of the reproducer anybody asked for.
+_PACKAGE_EXCLUDE = {".pytest_cache", "__pycache__", ".git", ".mypy_cache",
+                    ".ruff_cache", ".tox", ".venv", "venv"}
 
 # How far the ETA range is spread either side of the point estimate. The
 # per-line query factor is calibrated across repos that differ by a
@@ -212,39 +220,6 @@ def project_root(extracted: Path) -> Path:
     return extracted
 
 
-def detect_test_targets(root: Path, limit: int = 40) -> List[str]:
-    """pytest node ids worth suggesting, cheapest signal first.
-
-    Read out of the source rather than by running pytest: collection on an
-    uninstalled project usually errors, and this has to answer in the time
-    of an upload rather than the time of a test run.
-    """
-    import ast
-
-    found: List[str] = []
-    for path in sorted(root.rglob("test_*.py")) + sorted(root.rglob("*_test.py")):
-        if any(part in {".git", "__pycache__", ".venv", "venv", "node_modules"}
-               for part in path.parts):
-            continue
-        rel = path.relative_to(root).as_posix()
-        try:
-            tree = ast.parse(path.read_text())
-        except (SyntaxError, UnicodeDecodeError, OSError):
-            continue
-        for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
-                    and node.name.startswith("test"):
-                found.append(f"{rel}::{node.name}")
-            elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
-                for sub in node.body:
-                    if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) \
-                            and sub.name.startswith("test"):
-                        found.append(f"{rel}::{node.name}::{sub.name}")
-            if len(found) >= limit:
-                return found
-    return found
-
-
 def count_python(root: Path):
     files = [p for p in root.rglob("*.py")
              if not any(part in {".git", "__pycache__", ".venv", "venv"}
@@ -355,10 +330,12 @@ class JobRegistry:
             job.original_files, job.original_lines = count_python(root)
 
             interpreter = python or self._prepare_env(job, root)
+            command = self._resolve_command(job.command, interpreter)
+            self._check_ready(job, root, command)
 
             job.status = "running"
             job.message = "starting reduction"
-            self._reduce(job, root, interpreter)
+            self._reduce(job, root, command, interpreter)
 
             if job._cancel.is_set():
                 job.status = "cancelled"
@@ -387,40 +364,45 @@ class JobRegistry:
                 pass
 
     def _prepare_env(self, job: Job, root: Path) -> str:
-        """A virtualenv with pytest and, if the project is one, the project.
+        """A virtualenv with the project and its test dependencies in it.
 
         The reproduction command has to work before anything can be
         reduced, and for most real projects that means the package is
         importable. A failure here is reported as a failure to prepare
         rather than as a reduction result, because the difference matters:
         one is the user's environment, the other is the tool.
+
+        The venv goes in the job directory, one level above the extracted
+        project, so the environment is never part of the tree the reducer
+        walks.
         """
         job.message = "creating an environment and installing the project"
-        venv = job.work_dir / "venv"
-        subprocess.run([sys.executable, "-m", "venv", str(venv)],
-                       check=True, capture_output=True, timeout=180)
-        py = venv / "bin" / "python"
-        if not py.exists():                       # Windows layout
-            py = venv / "Scripts" / "python.exe"
+        try:
+            spec = provision(root, job.work_dir / "venv")
+        except ProvisionError as exc:
+            raise JobError(str(exc)) from exc
+        return spec.python
 
-        subprocess.run([str(py), "-m", "pip", "install", "-q",
-                        "pytest==9.0.0", "coverage"],
-                       check=True, capture_output=True, timeout=600)
+    @staticmethod
+    def _check_ready(job: Job, root: Path, command: List[str]) -> None:
+        """Refuse to reduce a project the command is not really running.
 
-        if (root / "pyproject.toml").exists() or (root / "setup.py").exists():
-            job.message = "installing the project (pip install -e .)"
-            proc = subprocess.run([str(py), "-m", "pip", "install", "-q",
-                                   "-e", "."],
-                                  cwd=root, capture_output=True, text=True,
-                                  timeout=900)
-            if proc.returncode != 0:
-                tail = (proc.stderr or proc.stdout or "").strip().splitlines()
-                raise JobError(
-                    "could not install the project with `pip install -e .`: "
-                    + (tail[-1] if tail else "no output"))
-        return str(py)
+        Without this a job naming a test that does not exist ran happily
+        to "done": pytest exited 4, the oracle adopted *exiting 4* as the
+        behavior to preserve, and the user downloaded a library reduced
+        to blank lines with the interface reporting success. Reduction
+        cannot detect that from the inside — every candidate really does
+        preserve the behavior it was given — so it has to be caught
+        before the first query.
+        """
+        job.message = "checking the reproduction command"
+        verdict = gate_check(root, command, timeout=120)
+        if not verdict.ok:
+            raise JobError(f"the reproduction command is not usable: "
+                           f"{verdict.reason}")
 
-    def _reduce(self, job: Job, root: Path, interpreter: str) -> None:
+    def _reduce(self, job: Job, root: Path, command: List[str],
+                interpreter: str) -> None:
         deadline = time.time() + MAX_JOB_SECONDS
 
         def on_progress(event: dict) -> None:
@@ -455,7 +437,6 @@ class JobRegistry:
         debugger = MultiFileDebugger(verbose=False, timeout=120,
                                      python=interpreter,
                                      progress=on_progress)
-        command = self._resolve_command(job.command, interpreter)
         try:
             summary = debugger.reduce_project(root, command)
         except KeyboardInterrupt:
@@ -488,6 +469,18 @@ class JobRegistry:
 
     @staticmethod
     def _package(tmp: Path, root: Path) -> Path:
-        out = tmp / "reduced"
-        archive = shutil.make_archive(str(out), "zip", root_dir=root)
-        return Path(archive)
+        """Zip the reduced project, without the litter reduction leaves.
+
+        Thousands of test runs happen in this directory, and each one
+        writes `.pytest_cache` and `__pycache__`. Shipping those means
+        the minimal reproducer a user downloads arrives with more
+        directories of cache than files of code.
+        """
+        out = tmp / "reduced.zip"
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+            for path in sorted(root.rglob("*")):
+                if any(part in _PACKAGE_EXCLUDE for part in path.parts):
+                    continue
+                if path.is_file():
+                    zf.write(path, path.relative_to(root).as_posix())
+        return out

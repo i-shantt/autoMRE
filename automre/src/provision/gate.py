@@ -50,12 +50,19 @@ class Readiness:
 
 
 def check(project_dir: Path, command: Sequence[str],
-          timeout: int = 120) -> Readiness:
+          timeout: int = 120, require_pass: bool = False) -> Readiness:
     """Whether `command` in `project_dir` is something worth reducing.
 
     Returns a Readiness whose `reason` names the problem when it is not.
     On success `baseline_output` / `baseline_rc` carry the run the caller
     would otherwise have to make itself.
+
+    `require_pass` is the one thing the two callers disagree about. The
+    Gistify-style benchmark preserves the behavior of a *passing* test,
+    so a non-zero exit there means the task itself is broken. Ordinary
+    use is the opposite: the reproduction command is usually the thing
+    that crashes, and demanding that it pass would reject every real bug
+    report. Off by default, so the general case is the default.
 
     Costs three or more runs of the command: one baseline, one repeat to
     catch flakiness, and one per top-level package for the positive
@@ -74,7 +81,7 @@ def check(project_dir: Path, command: Sequence[str],
     output, rc = _run(project_dir, command, timeout)
     runs = 1
 
-    unhealthy = baseline_health(output, rc)
+    unhealthy = baseline_health(output, rc, require_pass=require_pass)
     if unhealthy:
         return Readiness(False, unhealthy, output, rc, runs)
 
@@ -94,7 +101,7 @@ def check(project_dir: Path, command: Sequence[str],
                          output, rc, runs)
 
     vacuous, control_runs = _reduction_would_be_vacuous(
-        project_dir, command, rc, timeout)
+        project_dir, command, output, rc, timeout)
     runs += control_runs
     if vacuous:
         return Readiness(False, vacuous, output, rc, runs)
@@ -104,20 +111,27 @@ def check(project_dir: Path, command: Sequence[str],
 
 # --------------------------------------------------------------- checks
 
-def baseline_health(output: str, rc: int) -> Optional[str]:
+def baseline_health(output: str, rc: int,
+                    require_pass: bool = False) -> Optional[str]:
     """Reason the baseline is unusable, or None if it looks real.
 
-    Execution fidelity only means something if the target test actually
-    ran and passed before reduction. When it didn't, the harness happily
-    adopts the failure itself as the behavior to preserve, and the
-    reducer gets rewarded for deleting whatever isn't needed to keep
-    reproducing it — which can be almost the entire repo.
+    The checks up to `require_pass` all mean the same thing: the test
+    never ran. When that happens the harness adopts *not running* as the
+    behavior to preserve, and the reducer is rewarded for deleting
+    whatever is not needed to keep not running — which is the whole
+    repository.
 
     Both failure modes this catches were live in the manifest:
     requests-cookie_utils named a test that does not exist in v2.32.3
     (pytest exits 4, "no tests ran"), and the flask tasks errored during
     collection under a too-new pytest. Neither announced itself; both
-    scored execution fidelity 1.
+    scored execution fidelity 1. The web worker had the same hole: a job
+    naming a test that does not exist ran to "done" and handed back a
+    library emptied to blank lines.
+
+    `require_pass` adds the benchmark's extra demand — see `check`. A
+    failing test is a perfectly good reproduction command everywhere
+    else.
     """
     lowered = output.lower()
 
@@ -131,13 +145,13 @@ def baseline_health(output: str, rc: int) -> Optional[str]:
         return "test node id not found"
     if re.search(r"\b\d+ errors? in [\d.]+s", lowered):
         return "collection/setup error before any assertion"
-    if rc != 0:
+    if require_pass and rc != 0:
         return f"target test did not pass (rc={rc})"
     return None
 
 
 def _reduction_would_be_vacuous(project_dir: Path, command: List[str],
-                                baseline_rc: int,
+                                baseline_output: str, baseline_rc: int,
                                 timeout: int) -> tuple:
     """Positive control: remove the code and require the test to notice.
 
@@ -158,12 +172,20 @@ def _reduction_would_be_vacuous(project_dir: Path, command: List[str],
     import never falls back, and the check would pass on precisely the
     setup it is meant to catch.
 
+    "Still reproduces" is decided the way the oracle decides it — same
+    exit code *and* same normalized output. Exit code alone was enough
+    while this only ever ran against passing tests, but a reproduction
+    command is usually itself a failure, and an AssertionError and the
+    ModuleNotFoundError that replaces it both exit 1. On exit code alone
+    every genuine bug report would read as vacuous.
+
     Returns (reason or None, number of command runs spent).
     """
     packages = top_level_packages(project_dir)
     if not packages:
         return None, 0
 
+    baseline_normal = Validator._normalize_output(baseline_output)
     checked: List[str] = []
     runs = 0
     for pkg in packages:
@@ -176,9 +198,11 @@ def _reduction_would_be_vacuous(project_dir: Path, command: List[str],
         pkg_dir.rename(hidden)
         try:
             purge_bytecode(project_dir)
-            _, rc = _run(project_dir, command, timeout)
+            output, rc = _run(project_dir, command, timeout)
             runs += 1
-            still_reproduces = (rc == baseline_rc)
+            still_reproduces = (
+                rc == baseline_rc
+                and Validator._normalize_output(output) == baseline_normal)
         finally:
             hidden.rename(pkg_dir)
             purge_bytecode(project_dir)

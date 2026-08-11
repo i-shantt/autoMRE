@@ -173,15 +173,41 @@ def test_gate_rejects_a_test_that_does_not_exist(tmp_path):
     assert "does not contain" in verdict.reason
 
 
-def test_gate_rejects_a_command_that_does_not_pass(tmp_path):
+def test_gate_rejects_a_failing_test_only_when_asked_to(tmp_path):
+    """A crash is the normal reproduction command; the benchmark differs.
+
+    Gistify-style tasks preserve the behavior of a *passing* test, so a
+    non-zero exit means the task is broken. Everywhere else the command
+    is the bug, and rejecting it would refuse every real bug report.
+    """
     proj = _flat_project(tmp_path)
     (proj / "mylib.py").write_text("def add(a, b):\n    return a - b\n")
+    command = [sys.executable, "-m", "pytest",
+               "tests/test_mylib.py", "-x", "-q"]
 
-    verdict = check(proj, [sys.executable, "-m", "pytest",
-                           "tests/test_mylib.py", "-x", "-q"])
+    assert check(proj, command).ok
+    strict = check(proj, command, require_pass=True)
+    assert not strict.ok
+    assert "did not pass" in strict.reason
 
-    assert not verdict.ok
-    assert "did not pass" in verdict.reason
+
+def test_gate_accepts_a_crash_as_the_behavior_to_preserve(tmp_path):
+    """The positive control must not read a real crash as vacuous.
+
+    Without the package the crash becomes ModuleNotFoundError, and both
+    exit 1 — so comparing exit codes alone would reject this.
+    """
+    proj = tmp_path / "crasher"
+    (proj / "mylib").mkdir(parents=True)
+    (proj / "mylib" / "__init__.py").write_text(
+        "def boom():\n    return 1 / 0\n")
+    (proj / "main.py").write_text("import mylib\n\nmylib.boom()\n")
+
+    verdict = check(proj, [sys.executable, "main.py"])
+
+    assert verdict.ok, verdict.reason
+    assert verdict.baseline_rc == 1
+    assert "ZeroDivisionError" in verdict.baseline_output
 
 
 def test_gate_rejects_a_collection_error(tmp_path):
