@@ -29,9 +29,35 @@ def discover(root: Path, limit: int = 40) -> List[str]:
     `path/to/test_x.py::TestClass::test_name`, in path order, capped at
     `limit` because the caller is a person choosing one.
     """
-    root = Path(root)
     found: List[str] = []
+    for node_id in _walk(root):
+        found.append(node_id)
+        if len(found) >= limit:
+            break
+    return found
 
+
+def locate(root: Path, test_name: str) -> List[str]:
+    """Every node id in the tree whose test function is `test_name`.
+
+    Some task sources name the function and nothing else — 19.6% of
+    SWE-bench Verified, all of it sympy. `pytest -k <name>` finds it, but
+    only by collecting the entire suite, and the run then reports counts
+    for eleven thousand unrelated tests. Two sympy instances were refused
+    for exactly that: the warning tally moved between consecutive runs
+    (1429, then 1431) with nothing about the target test changing, so the
+    command was not repeatable and the oracle could not use it.
+
+    Resolving the name to a real node id fixes the cause rather than the
+    symptom, and collects one file instead of the suite.
+    """
+    return [node_id for node_id in _walk(root)
+            if node_id.rsplit("::", 1)[-1] == test_name]
+
+
+def _walk(root: Path):
+    """Every test node id in the tree, in path order."""
+    root = Path(root)
     for path in sorted(root.rglob("test_*.py")) + sorted(root.rglob("*_test.py")):
         if any(part in _SKIP_DIRS for part in path.parts):
             continue
@@ -43,15 +69,12 @@ def discover(root: Path, limit: int = 40) -> List[str]:
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
                     and node.name.startswith("test"):
-                found.append(f"{rel}::{node.name}")
+                yield f"{rel}::{node.name}"
             elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
                 for sub in node.body:
                     if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) \
                             and sub.name.startswith("test"):
-                        found.append(f"{rel}::{node.name}::{sub.name}")
-            if len(found) >= limit:
-                return found
-    return found
+                        yield f"{rel}::{node.name}::{sub.name}"
 
 
 def node_id_exists(root: Path, node_id: str) -> bool:

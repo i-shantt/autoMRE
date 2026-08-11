@@ -22,10 +22,14 @@ from provision import (  # noqa: E402
     ProvisionError,
     check,
     discover,
+    locate,
     node_id_exists,
     provision,
     top_level_packages,
 )
+# Private, and tested directly: it decides the one line a user sees when
+# an environment refuses to build.
+from provision.environment import _diagnosis  # noqa: E402
 
 LIB = '''\
 def add(a, b):
@@ -115,6 +119,26 @@ def test_node_id_exists_rejects_a_test_that_is_not_there(tmp_path):
     assert not node_id_exists(proj, "test_missing_file.py::test_real")
 
 
+def test_locate_resolves_a_bare_name_to_a_node_id(tmp_path):
+    """Sympy names the function only; -k would collect the whole suite."""
+    proj = _flat_project(tmp_path)
+    (proj / "tests" / "test_more.py").write_text(
+        "def test_issue_24543():\n    assert True\n")
+
+    assert locate(proj, "test_issue_24543") == \
+        ["tests/test_more.py::test_issue_24543"]
+    assert locate(proj, "test_nothing_here") == []
+
+
+def test_locate_reports_every_match_so_an_ambiguous_name_is_visible(tmp_path):
+    """Two tests share a name: resolving to either one would be a guess."""
+    proj = _flat_project(tmp_path)
+    (proj / "tests" / "test_a.py").write_text("def test_dup():\n    pass\n")
+    (proj / "tests" / "test_b.py").write_text("def test_dup():\n    pass\n")
+
+    assert len(locate(proj, "test_dup")) == 2
+
+
 # ----------------------------------------------------------- environment
 
 def test_provision_refuses_a_venv_inside_the_project(tmp_path):
@@ -148,6 +172,48 @@ def test_provision_skips_the_editable_install_without_a_package(tmp_path):
 
     assert spec.installed_editable is False
     assert Path(spec.python).exists()
+
+
+# ------------------------------------------------------- failure messages
+
+def test_the_reason_is_the_error_not_pips_closing_boilerplate():
+    """pip's last line is reliably its least useful one.
+
+    Three real rejections out of a fifteen-instance ingest read "note:
+    This error originates from a subprocess...", "hint: See above for
+    details." and "╰─> matplotlib" — the second pointing at output the
+    caller never sees.
+    """
+    output = (
+        "  × Building wheel for matplotlib did not run successfully.\n"
+        "  ╰─> [1863 lines of output]\n"
+        "      RuntimeError: Failed to download FreeType 2.6.1\n"
+        "  note: This error originates from a subprocess, and is likely "
+        "not a problem with pip.\n"
+        "  ERROR: Failed building wheel for matplotlib\n")
+
+    reason = _diagnosis(output)
+
+    assert "FreeType" in reason           # the cause, not the symptom
+    assert "matplotlib" in reason         # and which package broke
+    assert "originates from a subprocess" not in reason
+
+
+def test_the_reason_prefers_a_root_cause_over_a_trailing_hint():
+    assert _diagnosis("  SyntaxError: invalid syntax\n"
+                      "  hint: See above for details.") \
+        == "SyntaxError: invalid syntax"
+
+
+def test_a_plain_pip_error_survives_unchanged():
+    """No exception line to prefer; the ERROR line is already the point."""
+    line = "ERROR: No matching distribution found for numpy==1.19.2"
+    assert _diagnosis(line) == line
+
+
+def test_no_output_says_so_rather_than_crashing():
+    assert _diagnosis("") == "no output"
+    assert _diagnosis("   \n\n  ") == "no output"
 
 
 # ------------------------------------------------------------------ gate
@@ -220,6 +286,25 @@ def test_gate_rejects_a_collection_error(tmp_path):
                            "tests/test_mylib.py", "-x", "-q"])
 
     assert not verdict.ok
+
+
+def test_a_rejection_quotes_the_error_instead_of_guessing(tmp_path):
+    """The category alone sends people to the wrong place.
+
+    Two SWE-bench instances were rejected as "bad node id?" when their
+    node ids were correct: sphinx imports imghdr, gone in Python 3.13,
+    and xarray reads np.unicode_, gone in NumPy 2.0. Both look like a
+    typo in the command until the reason says otherwise.
+    """
+    proj = _flat_project(tmp_path)
+    (proj / "tests" / "conftest.py").write_text(
+        "import nonexistent_module_xyz\n")
+
+    verdict = check(proj, [sys.executable, "-m", "pytest",
+                           "tests/test_mylib.py", "-x", "-q"])
+
+    assert not verdict.ok
+    assert "nonexistent_module_xyz" in verdict.reason
 
 
 def test_gate_rejects_a_flaky_command(tmp_path):

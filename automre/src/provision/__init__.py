@@ -22,7 +22,7 @@ together, which is the part that was missing here.
 
 from __future__ import annotations
 
-from .discovery import discover, node_id_exists
+from .discovery import discover, locate, node_id_exists
 from .environment import (
     DEFAULT_PYTEST_PIN,
     EnvSpec,
@@ -49,6 +49,7 @@ __all__ = [
     "check",
     "discard",
     "discover",
+    "locate",
     "node_id_exists",
     "provision",
     "purge_bytecode",
