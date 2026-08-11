@@ -593,6 +593,26 @@ measurement until shown otherwise, not a finding. And **a correction is
 a claim like any other**: this one overturned a *correct* statement and
 cost more than the error it was fixing.
 
+### The same hole was open in the web app
+
+Every entry above is about the benchmark, because that is where the
+checks lived. When they were moved into a shared module and the web
+worker was pointed at them, the worker turned out to have the very first
+failure on this list, still open.
+
+A job naming a test that does not exist ran to **"done"**. pytest exited
+4, the oracle adopted *exiting 4* as the behavior to preserve, and the
+reducer deleted everything not needed to keep exiting 4. The download
+contained `mylib.py` reduced to five blank lines. The summary read
+"11 → 9 lines", because blank lines are still lines.
+
+Reduction cannot catch this from the inside — every candidate genuinely
+does preserve the behavior it was given; the behavior was worthless. The
+check has to happen before the first query, which is what the readiness
+gate is for. The benchmark had one and the app did not, and that is the
+argument for the two of them sharing a module rather than each growing
+its own.
+
 ### The check that catches these is a vacuity probe, not a size assertion
 
 Size cannot distinguish a good reduction from a destroyed one.
@@ -712,6 +732,61 @@ to chase it.
 
 ---
 
+## Pointing it at a repository it has never seen
+
+The ten benchmark tasks are hand-written. So are the eighteen the learned
+oracle trains on. That is not an accident of effort — it is the cost of
+adding a repository: someone has to work out how to install it, which
+test to name, and whether the result is worth measuring. It is also why
+the oracle has two cross-validation folds and why the fold scores
+disagree (0.850 against 0.963), which is the number that most wants a
+third repository behind it.
+
+`automre/src/provision/` is that step, in three pieces:
+
+| | |
+|---|---|
+| `provision()` | a virtualenv per project: coverage, then the project, then its test extra, then pytest **only if** the first three did not already supply one |
+| `discover()` | pytest node ids read out of the source, without running pytest |
+| `check()` | the readiness gate: the named test exists, the command runs, it does the same thing twice, and removing the package changes the result |
+
+The install order in `provision()` is the whole design. Putting pytest
+last is what lets a project keep its own pin without anything parsing a
+`pyproject.toml` to find it — and flask is why that matters, since its
+conftest reads a sentinel removed in pytest 9.1.
+
+`evaluation/ingest_tasks.py` runs all three over a list of
+`(repo, commit, failing test)` records and writes the survivors as a
+manifest the benchmark runner already reads. Rejected instances are
+written out **with the reason**, since an instance that disappears
+quietly is how a benchmark starts measuring nothing again.
+
+One consequence worth stating: SWE-bench-shaped instances are pinned at
+the commit *before* the fix, so their `FAIL_TO_PASS` test **fails**. For
+a minimal reproducer that is the ordinary case rather than a problem —
+the question is what the smallest project that still crashes this way is.
+The gate demanded a passing command until this landed, which would have
+rejected every such instance; that assumption now belongs to the
+Gistify-style benchmark, which is the one that really does preserve a
+passing test.
+
+### Where the idea came from
+
+[SWE-Hub](https://arxiv.org/abs/2603.00575) (2026) is a production system
+for manufacturing executable software-engineering tasks: an Env Agent
+that turns a repository snapshot into a reproducible environment, a Test
+Agent that finds the entrypoint, and a verification gate before anything
+is called a task. Its code and data are not released, so nothing here
+uses it — what is taken is the observation that those three steps belong
+together, which is precisely what was wrong in this repository, where two
+of them already existed in files that could not see each other.
+
+The relationship is worth stating plainly, because it runs the other way
+from the borrowing. SWE-Hub *generates* executable tasks and argues that
+agent progress is bottlenecked on them being brittle and expensive.
+autoMRE takes one task and produces the smallest environment that still
+exhibits it. Same problem, opposite end.
+
 ## Structure
 
 ```
@@ -726,6 +801,10 @@ automre/src/
     import_inliner.py         Phase 3
     coverage_pruner.py        Phase 4a
     multi_file_debugger.py    orchestrator, oracle-file protection, progress
+  provision/
+    environment.py            a virtualenv per project
+    discovery.py              pytest node ids, read not run
+    gate.py                   is this worth reducing at all
   ml/                       learned removability oracle (optional extra)
 automre/tests/              soundness, vacuity, and unit tests
 automre/examples/           small projects with real bugs, used by
@@ -736,6 +815,9 @@ entrypoint.sh               tests plus one example reduction, ~30 s
 evaluation/
   gistify_runner.py         benchmark harness
   gistify_tasks.json        10-task manifest (requests, flask, tomlkit)
+  ingest_tasks.py           (repo, commit, failing test) -> a manifest,
+                            everything that fails the gate written out
+                            with its reason
   cloud_bench.py            same harness for Colab/Kaggle, plus the
                             --ablation coverage-prune A/B
   results_gistify_*.json    results per configuration
