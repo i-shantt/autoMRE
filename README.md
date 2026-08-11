@@ -1,13 +1,15 @@
 # autoMRE
 
-**Give it a Python project and one test. It hands back the smallest
-version of that project where the test still behaves exactly the same
-way.**
+**Automatically builds a minimal reproducible example (MRE) from a
+Python project.** Give it your project and one test; it hands back the
+smallest version of that project where the test still behaves exactly the
+same way.
 
 Everything the test does not need is deleted — whole files, then
 definitions, then individual statements. After every single deletion the
 test is run again, and the deletion is kept only if the output is
-unchanged.
+unchanged. Nothing is guessed: every line that survives has been proven
+necessary by re-running your own test.
 
 ```
 psf/requests, reduced to keep one test passing
@@ -35,7 +37,9 @@ That loop is mechanical, so it can be automated. The technique is called
 for single files. autoMRE applies it across a whole project, using
 coverage data to decide what to try deleting first.
 
-The output is an **MRE**: a minimal reproducible example.
+What comes out is a **minimal reproducible example** — the same thing a
+maintainer means when they ask you to attach one, except produced by
+measurement rather than by guessing.
 
 ---
 
@@ -99,10 +103,17 @@ hours — it prints the command for it.
 ### In a browser
 
 `web/` contains a small web app: drop in a zipped project, name the
-test, watch it shrink, download the result. The UI deploys to Vercel;
-the engine has to run somewhere that can hold a job for minutes to
-hours, so it ships as a container. Setup is in
-[`web/README.md`](web/README.md).
+test, watch it shrink, download the result.
+
+**There is no hosted instance yet** — run it locally with two commands
+(worker, then UI), both in [`web/README.md`](web/README.md). The UI is a
+Next.js app built to deploy to Vercel, but the engine cannot go there:
+a reduction runs thousands of subprocesses over minutes to hours, and
+Vercel functions cap at 800 s with an ephemeral filesystem. So the UI
+ships to Vercel and the engine ships as a container to somewhere that
+can hold a long job. Both halves are written and tested; neither is
+deployed, because deploying a service that executes uploaded code needs
+a sandbox this does not yet have.
 
 ### On the command line
 
