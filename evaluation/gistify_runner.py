@@ -43,6 +43,7 @@ sys.path.insert(0, str(_ROOT / "automre" / "src"))
 sys.path.insert(0, str(_ROOT / "evaluation"))
 
 from multi_file import MultiFileDebugger  # noqa: E402
+from provision import check as gate_check, purge_bytecode as _purge_bytecode  # noqa: E402
 from validator import Validator  # noqa: E402
 
 
@@ -265,165 +266,6 @@ def _install_work_copy(work_dir: Path, python: str) -> bool:
     return True
 
 
-def _top_level_packages(work_dir: Path) -> List[str]:
-    """Importable package names shipped by the repo under test."""
-    roots = [work_dir, work_dir / "src"]
-    names: List[str] = []
-    for root in roots:
-        if not root.is_dir():
-            continue
-        for child in sorted(root.iterdir()):
-            if (child.is_dir() and (child / "__init__.py").exists()
-                    and not child.name.startswith((".", "_"))
-                    and child.name not in ("tests", "test", "docs",
-                                           "examples")):
-                names.append(child.name)
-    return names
-
-
-def _imports_resolve_to_work_copy(work_dir: Path,
-                                  python: str) -> Optional[str]:
-    """Reason the work copy is not the code under test, or None if fine.
-
-    Cheap standing guard against the shadowing bug returning. If the
-    package the test imports lives somewhere other than the directory we
-    are mutating, every reduction is a no-op and execution fidelity is
-    meaningless.
-    """
-    packages = _top_level_packages(work_dir)
-    if not packages:
-        return None  # nothing importable to check; fidelity still applies
-
-    resolved = []
-    for pkg in packages:
-        proc = subprocess.run(
-            [python, "-c",
-             f"import {pkg}, os; print(os.path.realpath({pkg}.__file__))"],
-            cwd=work_dir, capture_output=True, text=True)
-        if proc.returncode != 0:
-            continue
-        resolved.append((pkg, proc.stdout.strip()))
-
-    if not resolved:
-        return None
-
-    target = str(work_dir.resolve())
-    outside = [(p, loc) for p, loc in resolved
-               if not loc.startswith(target)]
-    if len(outside) == len(resolved):
-        pkg, loc = outside[0]
-        return (f"`import {pkg}` resolves to {loc}, outside the work copy "
-                f"— reductions would not affect the test")
-    return None
-
-
-# ------------------------------------------------------------ eval
-
-def _work_copy_not_authoritative(work_dir: Path, cmd: List[str],
-                                 baseline_rc: int,
-                                 timeout: int) -> Optional[str]:
-    """Positive control: remove the code and require the test to notice.
-
-    `_imports_resolve_to_work_copy` asks where a package resolves *before*
-    reduction starts, and that is not the same question. An editable
-    install can resolve to the work copy at baseline and then silently
-    fall through to another copy the moment the reducer deletes the
-    package's files — which is exactly when it matters, and exactly the
-    shape of failure that has now cost this benchmark two audits.
-
-    So instead of inspecting paths, reproduce the reducer's own most
-    destructive move: rename the package directory aside, run the
-    reproduction command, and require it to stop passing. A tree that
-    still reproduces the bug with its implementation missing is not being
-    measured, and every reduction number from it is meaningless.
-
-    Renaming rather than editing is deliberate. Appending `raise` to
-    `__init__.py` would prove nothing: the file still exists, so the
-    import never falls back, and the check would pass on precisely the
-    setup it is meant to catch.
-    """
-    packages = _top_level_packages(work_dir)
-    if not packages:
-        return None
-
-    checked = []
-    for pkg in packages:
-        pkg_dir = next((root / pkg for root in (work_dir, work_dir / "src")
-                        if (root / pkg).is_dir()), None)
-        if pkg_dir is None:
-            continue
-        hidden = pkg_dir.with_name(pkg_dir.name + ".automre_sabotage")
-        pkg_dir.rename(hidden)
-        try:
-            _purge_bytecode(work_dir)
-            try:
-                proc = subprocess.run(cmd, cwd=work_dir, capture_output=True,
-                                      text=True, timeout=timeout)
-                still_reproduces = (proc.returncode == baseline_rc)
-            except subprocess.TimeoutExpired:
-                still_reproduces = False
-        finally:
-            hidden.rename(pkg_dir)
-            _purge_bytecode(work_dir)
-        checked.append(pkg)
-        if not still_reproduces:
-            return None  # removing the code broke the test: it is under test
-
-    if not checked:
-        return None
-    return (f"removing {'/'.join(checked)} entirely did not change the "
-            f"result — the reproduction command is not running the code in "
-            f"the work copy, so any reduction measured here is vacuous")
-
-
-def _capture_baseline(work_dir: Path, cmd: List[str],
-                      timeout: int) -> tuple:
-    try:
-        proc = subprocess.run(cmd, cwd=work_dir, capture_output=True,
-                              text=True, timeout=timeout)
-        return (proc.stdout or "") + (proc.stderr or ""), proc.returncode
-    except subprocess.TimeoutExpired:
-        return "TIMEOUT", -1
-
-
-def _baseline_health(output: str, rc: int) -> Optional[str]:
-    """Reason the baseline is unusable, or None if it looks real.
-
-    Execution fidelity only means something if the target test actually
-    ran and passed before reduction. When it didn't, the harness happily
-    adopts the failure itself as the behavior to preserve, and the
-    reducer gets rewarded for deleting whatever isn't needed to keep
-    reproducing it — which can be almost the entire repo.
-
-    Both failure modes this catches were live in the manifest:
-    requests-cookie_utils named a test that does not exist in v2.32.3
-    (pytest exits 4, "no tests ran"), and the flask tasks errored during
-    collection under a too-new pytest. Neither announced itself; both
-    scored execution fidelity 1.
-    """
-    lowered = output.lower()
-
-    if rc == 4:
-        return "pytest usage error (rc=4) — bad node id?"
-    if rc == 5:
-        return "no tests collected (rc=5)"
-    if "no tests ran" in lowered:
-        return "no tests ran"
-    if "error: not found:" in lowered:
-        return "test node id not found"
-    if re.search(r"\b\d+ errors? in [\d.]+s", lowered):
-        return "collection/setup error before any assertion"
-    if rc != 0:
-        return f"target test did not pass (rc={rc})"
-    return None
-
-
-def _purge_bytecode(root: Path) -> None:
-    """Drop every __pycache__ under root so the next run compiles sources."""
-    for cache_dir in root.rglob("__pycache__"):
-        shutil.rmtree(cache_dir, ignore_errors=True)
-
-
 def _check_execution_fidelity(work_dir: Path, cmd: List[str],
                               baseline_output: str, baseline_rc: int,
                               timeout: int) -> bool:
@@ -516,59 +358,31 @@ def run_task(task: GistifyTask, timeout: int = 120,
                 total_queries=0, time_seconds=0.0,
                 error="work-copy install failed")
 
-        shadowed = _imports_resolve_to_work_copy(work_dir, python)
-        if shadowed and not allow_unhealthy_baseline:
-            print(f"  → SKIP: {shadowed}", flush=True)
-            return GistifyResult(
-                task_id=task.task_id, execution_fidelity=0,
-                original_files=0, final_files=0,
-                original_lines=0, final_lines=0,
-                single_file_output=False,
-                total_queries=0, time_seconds=0.0,
-                error=f"work copy not under test: {shadowed}")
-
-        print(f"  → capturing baseline output...", flush=True)
-        baseline_out, baseline_rc = _capture_baseline(
-            work_dir, test_command, timeout=timeout)
-        if baseline_rc < 0 and "TIMEOUT" in baseline_out:
-            return GistifyResult(
-                task_id=task.task_id, execution_fidelity=0,
-                original_files=0, final_files=0,
-                original_lines=0, final_lines=0,
-                single_file_output=False,
-                total_queries=0, time_seconds=0.0,
-                error="baseline timed out")
-
         orig_files, orig_lines = _count_files_and_lines(work_dir)
 
-        unhealthy = _baseline_health(baseline_out, baseline_rc)
-        if unhealthy and not allow_unhealthy_baseline:
-            print(f"  → SKIP: unusable baseline — {unhealthy}", flush=True)
+        # One gate instead of three inline checks: baseline, health,
+        # determinism and the positive control, in `provision.gate`,
+        # shared with the web worker so both callers benefit when either
+        # one finds a new way for a task to look fine and be worthless.
+        # require_pass because a Gistify task is a *passing* test — the
+        # general case is the opposite and the gate defaults to it.
+        print(f"  → checking the task is worth reducing...", flush=True)
+        verdict = gate_check(work_dir, test_command, timeout=timeout,
+                             require_pass=True)
+        baseline_out, baseline_rc = verdict.baseline_output, verdict.baseline_rc
+        if not verdict.ok and not allow_unhealthy_baseline:
+            print(f"  → SKIP: {verdict.reason}", flush=True)
             return GistifyResult(
                 task_id=task.task_id, execution_fidelity=0,
                 original_files=orig_files, final_files=orig_files,
                 original_lines=orig_lines, final_lines=orig_lines,
                 single_file_output=False,
                 total_queries=0, time_seconds=0.0,
-                error=f"unusable baseline: {unhealthy}")
+                error=f"unusable task: {verdict.reason}")
 
-        print(f"  → baseline ok (rc={baseline_rc}); "
-              f"repo has {orig_files} .py files, "
+        print(f"  → baseline ok (rc={baseline_rc}, {verdict.command_runs} "
+              f"gate runs); repo has {orig_files} .py files, "
               f"{orig_lines} lines", flush=True)
-
-        print(f"  → positive control (removing the code must break the "
-              f"test)...", flush=True)
-        vacuous = _work_copy_not_authoritative(
-            work_dir, test_command, baseline_rc, timeout)
-        if vacuous and not allow_unhealthy_baseline:
-            print(f"  → SKIP: {vacuous}", flush=True)
-            return GistifyResult(
-                task_id=task.task_id, execution_fidelity=0,
-                original_files=orig_files, final_files=orig_files,
-                original_lines=orig_lines, final_lines=orig_lines,
-                single_file_output=False,
-                total_queries=0, time_seconds=0.0,
-                error=f"work copy not under test: {vacuous}")
 
         debugger = MultiFileDebugger(
             verbose=verbose, timeout=timeout,

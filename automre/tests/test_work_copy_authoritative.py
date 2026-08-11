@@ -5,15 +5,15 @@ times: the reproduction command runs against a copy of the package other
 than the one being edited, so every deletion validates, reduction looks
 spectacular, and execution fidelity is 1 while nothing was measured.
 
-`_imports_resolve_to_work_copy` asks where imports resolve *before*
-reduction. That is not sufficient, and a real run proved it: a benchmark
-venv built with `--system-site-packages` on a hosted runtime resolved to
-the work copy at baseline and fell through to the host's preinstalled
-copy the moment the reducer deleted the work copy's files. It scored 6/6
-fidelity having deleted flask down to its test file in 56 queries.
+Asking where imports resolve *before* reduction is not sufficient, and a
+real run proved it: a benchmark venv built with `--system-site-packages`
+on a hosted runtime resolved to the work copy at baseline and fell
+through to the host's preinstalled copy the moment the reducer deleted
+the work copy's files. It scored 6/6 fidelity having deleted flask down
+to its test file in 56 queries.
 
-`_work_copy_not_authoritative` is the positive control for that: remove
-the package and require the test to stop passing. These tests pin both
+The positive control inside `provision.gate` is the answer: remove the
+package and require the test to stop passing. These tests pin both
 halves — it must not fire on a healthy tree, and it must fire on the
 shadowed one.
 
@@ -31,9 +31,9 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "evaluation"))
+sys.path.insert(0, str(ROOT / "automre" / "src"))
 
-import gistify_runner as gr  # noqa: E402
+from provision import check, top_level_packages  # noqa: E402
 
 CMD_TAIL = ["-m", "pytest", "tests/test_demo.py::test_answer", "-x", "-q",
             "--no-header"]
@@ -105,10 +105,7 @@ def _build_case(root: Path, pristine: Path, shadow_copy: bool) -> tuple:
         shutil.copytree(pristine / "src", host_dir)
         (site / "zz_hostcopy.pth").write_text(str(host_dir) + "\n")
 
-    cmd = [str(py)] + CMD_TAIL
-    out, rc = gr._capture_baseline(work, cmd, timeout=120)
-    assert gr._baseline_health(out, rc) is None, out[-300:]
-    return work, cmd, rc
+    return work, [str(py)] + CMD_TAIL
 
 
 @pytest.fixture(scope="module")
@@ -117,31 +114,43 @@ def pristine(tmp_path_factory):
 
 
 def test_control_passes_when_work_copy_is_under_test(pristine, tmp_path):
-    work, cmd, rc = _build_case(tmp_path, pristine, shadow_copy=False)
-    assert gr._work_copy_not_authoritative(work, cmd, rc, timeout=120) is None
+    work, cmd = _build_case(tmp_path, pristine, shadow_copy=False)
+
+    verdict = check(work, cmd, timeout=120, require_pass=True)
+
+    assert verdict.ok, verdict.reason
 
 
 def test_control_fires_when_a_host_copy_shadows_the_work_copy(pristine,
                                                               tmp_path):
-    work, cmd, rc = _build_case(tmp_path, pristine, shadow_copy=True)
+    work, cmd = _build_case(tmp_path, pristine, shadow_copy=True)
 
-    # The old guard is why this reached production: it sees the work copy
-    # resolving correctly at baseline and says nothing.
-    assert gr._imports_resolve_to_work_copy(work, cmd[0]) is None
+    # The reason a static check is not enough: at baseline, before any
+    # deletion, the package resolves to the work copy exactly as it
+    # should. Nothing is visibly wrong until the reducer starts cutting.
+    probe = subprocess.run(
+        [cmd[0], "-c", "import demopkg, os; print(os.path.realpath("
+                       "demopkg.__file__))"],
+        cwd=work, capture_output=True, text=True)
+    assert probe.stdout.strip().startswith(str(work.resolve()))
 
-    reason = gr._work_copy_not_authoritative(work, cmd, rc, timeout=120)
-    assert reason is not None, (
+    verdict = check(work, cmd, timeout=120, require_pass=True)
+
+    assert not verdict.ok, (
         "the control did not fire on a shadowed work copy — this is the "
         "exact setup that produced 6/6 fidelity on nothing")
-    assert "vacuous" in reason
+    assert "vacuous" in verdict.reason
 
 
 def test_control_restores_the_tree_it_sabotages(pristine, tmp_path):
     """A guard that damages the tree would be worse than no guard."""
-    work, cmd, rc = _build_case(tmp_path, pristine, shadow_copy=False)
+    work, cmd = _build_case(tmp_path, pristine, shadow_copy=False)
     before = {p.relative_to(work): p.read_bytes()
               for p in sorted(work.rglob("*.py"))}
-    gr._work_copy_not_authoritative(work, cmd, rc, timeout=120)
+
+    check(work, cmd, timeout=120, require_pass=True)
+
     after = {p.relative_to(work): p.read_bytes()
              for p in sorted(work.rglob("*.py"))}
     assert before == after
+    assert top_level_packages(work) == ["demopkg"]
