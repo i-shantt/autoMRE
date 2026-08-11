@@ -1,0 +1,261 @@
+"""The provisioning module: build an environment, find tests, judge fitness.
+
+The gate cases are the interesting ones. Each names a failure this
+benchmark actually shipped — a test that never ran, a collection error
+adopted as the behavior to preserve, a package resolving outside the tree
+being cut — and requires the gate to refuse it. A gate that passes
+everything is the same as no gate, and that is the state every one of
+those failures was discovered in.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(_ROOT / "automre" / "src"))
+
+from provision import (  # noqa: E402
+    ProvisionError,
+    check,
+    discover,
+    node_id_exists,
+    provision,
+    top_level_packages,
+)
+
+LIB = '''\
+def add(a, b):
+    return a + b
+'''
+
+TEST = '''\
+import mylib
+
+
+def test_add():
+    assert mylib.add(1, 2) == 3
+'''
+
+PYPROJECT = '''\
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gatedemo"
+version = "0.1.0"
+
+[tool.setuptools]
+packages = ["mylib"]
+'''
+
+
+def _package_project(tmp_path: Path, name: str = "proj") -> Path:
+    """A real installable package, so `import mylib` means something."""
+    proj = tmp_path / name
+    (proj / "mylib").mkdir(parents=True)
+    (proj / "tests").mkdir()
+    (proj / "mylib" / "__init__.py").write_text(LIB)
+    (proj / "tests" / "test_mylib.py").write_text(TEST)
+    (proj / "pyproject.toml").write_text(PYPROJECT)
+    return proj
+
+
+def _flat_project(tmp_path: Path) -> Path:
+    """No package, no pyproject — the shape a web upload usually has."""
+    proj = tmp_path / "flat"
+    (proj / "tests").mkdir(parents=True)
+    (proj / "mylib.py").write_text(LIB)
+    (proj / "tests" / "test_mylib.py").write_text(TEST)
+    return proj
+
+
+# ------------------------------------------------------------- discovery
+
+def test_discover_finds_functions_and_methods(tmp_path):
+    proj = tmp_path / "p"
+    proj.mkdir()
+    (proj / "test_things.py").write_text(
+        "def test_one():\n    pass\n\n"
+        "class TestGroup:\n    def test_two(self):\n        pass\n\n"
+        "def helper():\n    pass\n")
+
+    found = discover(proj)
+
+    assert "test_things.py::test_one" in found
+    assert "test_things.py::TestGroup::test_two" in found
+    assert not any("helper" in f for f in found)
+
+
+def test_discover_skips_virtualenvs(tmp_path):
+    """A venv is full of test files belonging to somebody else's project."""
+    proj = tmp_path / "p"
+    (proj / ".venv" / "lib").mkdir(parents=True)
+    (proj / ".venv" / "lib" / "test_someone_elses.py").write_text(
+        "def test_x():\n    pass\n")
+    (proj / "test_mine.py").write_text("def test_mine():\n    pass\n")
+
+    found = discover(proj)
+
+    assert found == ["test_mine.py::test_mine"]
+
+
+def test_node_id_exists_rejects_a_test_that_is_not_there(tmp_path):
+    """requests-cookie_utils named a test v2.32.3 does not have."""
+    proj = tmp_path / "p"
+    proj.mkdir()
+    (proj / "test_a.py").write_text("def test_real():\n    pass\n")
+
+    assert node_id_exists(proj, "test_a.py::test_real")
+    assert not node_id_exists(proj, "test_a.py::test_imaginary")
+    assert not node_id_exists(proj, "test_missing_file.py::test_real")
+
+
+# ----------------------------------------------------------- environment
+
+def test_provision_refuses_a_venv_inside_the_project(tmp_path):
+    """The reducer would treat thousands of venv files as candidates."""
+    proj = _flat_project(tmp_path)
+
+    with pytest.raises(ProvisionError, match="inside the project"):
+        provision(proj, proj / "venv")
+
+
+def test_provision_builds_a_usable_environment(tmp_path):
+    proj = _package_project(tmp_path)
+
+    spec = provision(proj, tmp_path / "env")
+
+    assert Path(spec.python).exists()
+    assert spec.installed_editable is True
+    assert spec.pytest_source in ("project", "provisioned")
+    assert all(step.ok for step in spec.steps), spec.log()
+    # The point of provisioning: the project is importable afterwards.
+    import subprocess
+    proc = subprocess.run([spec.python, "-c", "import mylib, coverage, pytest"],
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+
+
+def test_provision_skips_the_editable_install_without_a_package(tmp_path):
+    proj = _flat_project(tmp_path)
+
+    spec = provision(proj, tmp_path / "env")
+
+    assert spec.installed_editable is False
+    assert Path(spec.python).exists()
+
+
+# ------------------------------------------------------------------ gate
+
+def test_gate_accepts_a_healthy_project(tmp_path):
+    proj = _flat_project(tmp_path)
+
+    verdict = check(proj, [sys.executable, "-m", "pytest",
+                           "tests/test_mylib.py::test_add", "-x", "-q"])
+
+    assert verdict.ok, verdict.reason
+    assert verdict.baseline_rc == 0
+    assert verdict.command_runs >= 2
+
+
+def test_gate_rejects_a_test_that_does_not_exist(tmp_path):
+    proj = _flat_project(tmp_path)
+
+    verdict = check(proj, [sys.executable, "-m", "pytest",
+                           "tests/test_mylib.py::test_imaginary", "-x", "-q"])
+
+    assert not verdict.ok
+    assert "does not contain" in verdict.reason
+
+
+def test_gate_rejects_a_command_that_does_not_pass(tmp_path):
+    proj = _flat_project(tmp_path)
+    (proj / "mylib.py").write_text("def add(a, b):\n    return a - b\n")
+
+    verdict = check(proj, [sys.executable, "-m", "pytest",
+                           "tests/test_mylib.py", "-x", "-q"])
+
+    assert not verdict.ok
+    assert "did not pass" in verdict.reason
+
+
+def test_gate_rejects_a_collection_error(tmp_path):
+    """The flask tasks errored during collection and still scored 1."""
+    proj = _flat_project(tmp_path)
+    (proj / "tests" / "conftest.py").write_text(
+        "raise RuntimeError('conftest is broken')\n")
+
+    verdict = check(proj, [sys.executable, "-m", "pytest",
+                           "tests/test_mylib.py", "-x", "-q"])
+
+    assert not verdict.ok
+
+
+def test_gate_rejects_a_flaky_command(tmp_path):
+    """A test that flips run to run records noise as behavior."""
+    proj = tmp_path / "flaky"
+    (proj / "tests").mkdir(parents=True)
+    (proj / "tests" / "test_coin.py").write_text(
+        "import pathlib\n\n\n"
+        "def test_coin():\n"
+        "    stamp = pathlib.Path(__file__).parent / '.seen'\n"
+        "    first = not stamp.exists()\n"
+        "    stamp.touch()\n"
+        "    assert first\n")
+
+    verdict = check(proj, [sys.executable, "-m", "pytest",
+                           "tests/test_coin.py", "-x", "-q"])
+
+    assert not verdict.ok
+    assert "not deterministic" in verdict.reason
+
+
+def test_gate_rejects_a_tree_whose_code_is_not_under_test(tmp_path):
+    """The shadowing bug, reproduced: the test passes without the package.
+
+    This is the failure that voided a whole cloud run. The test imports
+    nothing from the package beside it, so deleting the package changes
+    nothing and every reduction measured here would be vacuous.
+    """
+    proj = tmp_path / "shadowed"
+    (proj / "mylib").mkdir(parents=True)
+    (proj / "tests").mkdir()
+    (proj / "mylib" / "__init__.py").write_text(LIB)
+    (proj / "tests" / "test_nothing.py").write_text(
+        "def test_passes_regardless():\n    assert True\n")
+
+    verdict = check(proj, [sys.executable, "-m", "pytest",
+                           "tests/test_nothing.py", "-x", "-q"])
+
+    assert not verdict.ok
+    assert "vacuous" in verdict.reason
+
+
+def test_gate_restores_the_tree_it_sabotaged(tmp_path):
+    """The positive control renames a package aside. It must put it back.
+
+    The gate is handed the caller's real project, not a copy, so a
+    sabotage it forgets to undo is a directory the user loses.
+    """
+    proj = _package_project(tmp_path)
+
+    check(proj, [sys.executable, "-m", "pytest",
+                 "tests/test_mylib.py", "-x", "-q"])
+
+    assert (proj / "mylib" / "__init__.py").read_text() == LIB
+    assert (proj / "tests" / "test_mylib.py").read_text() == TEST
+    assert not list(proj.rglob("*.automre_sabotage"))
+
+
+def test_top_level_packages_ignores_tests_and_dotdirs(tmp_path):
+    proj = tmp_path / "p"
+    for name in ("mylib", "tests", "docs", ".hidden", "_private"):
+        (proj / name).mkdir(parents=True)
+        (proj / name / "__init__.py").write_text("")
+
+    assert top_level_packages(proj) == ["mylib"]
