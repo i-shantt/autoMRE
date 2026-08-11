@@ -224,9 +224,8 @@ class Validator:
         temp_file: Optional[Path] = None
         saved: Optional[str] = None
         if command:
-            target = self.target_file
-            saved = target.read_text() if target.exists() else None
-            target.write_text(source_code)
+            saved = (self.target_file.read_text()
+                     if self.target_file.exists() else None)
         else:
             with tempfile.NamedTemporaryFile(mode='w', suffix='.py',
                                              delete=False, dir=cwd) as f:
@@ -234,6 +233,13 @@ class Validator:
                 temp_file = Path(f.name)
 
         try:
+            if command:
+                # Inside the try, not before it: this overwrites the user's
+                # own file, and an interrupt landing between the write and
+                # the try would leave a candidate sitting where their source
+                # used to be with nothing left to restore it.
+                self.target_file.write_text(source_code)
+
             cmd = command if command else [sys.executable, str(temp_file)]
 
             result = subprocess.run(

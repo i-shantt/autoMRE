@@ -301,6 +301,17 @@ def cmd_reduce_project(args):
             work_dir = Path(args.output).resolve()
         else:
             work_dir = project_dir.parent / f"{project_dir.name}_minimized"
+        # --force means "overwrite the output". If the output is the project
+        # itself, or holds it, that quietly means "delete the input": the
+        # tree is removed and the copy that was supposed to replace it then
+        # fails with FileNotFoundError, leaving nothing at all. Refuse.
+        if work_dir == project_dir or work_dir in project_dir.parents:
+            print(f"Error: --output {work_dir} is the project being reduced, "
+                  "or a directory containing it. Reducing into it would "
+                  "destroy the input. Pick a path outside the project, or "
+                  "use --in-place to reduce it where it lies.",
+                  file=sys.stderr)
+            return 1
         if work_dir.exists():
             if args.force:
                 shutil.rmtree(work_dir)
@@ -323,7 +334,29 @@ def cmd_reduce_project(args):
                            if getattr(args, "oracle_model", None) else None),
         python=getattr(args, "python", None),
     )
-    result = debugger.reduce_project(work_dir, test_command)
+    try:
+        result = debugger.reduce_project(work_dir, test_command)
+    except ValueError as exc:
+        # The pre-flight refusals — an unprotected test-runner command,
+        # mainly. They fire before the tree is touched, and every other
+        # user error in this CLI prints a line and exits; this one should
+        # not be the single exception that answers with a stack trace.
+        # The copy is removed because it holds nothing, and leaving it
+        # would make the next attempt fail on "output already exists"
+        # for a reason unrelated to what went wrong.
+        print(f"Error: {exc}", file=sys.stderr)
+        if not args.in_place and work_dir != project_dir and work_dir.exists():
+            shutil.rmtree(work_dir, ignore_errors=True)
+        return 1
+    except KeyboardInterrupt:
+        # A reduction runs for minutes to hours, so Ctrl-C is an ordinary
+        # way to end one rather than a crash. The oracle restores the file
+        # it was testing in a `finally`, so what is on disk is a state the
+        # oracle accepted — partial, but usable, and worth naming.
+        print(file=sys.stderr)
+        print("Interrupted. The partially reduced project is at "
+              f"{work_dir}", file=sys.stderr)
+        return 130
 
     print()
     print("=" * 60)
@@ -532,7 +565,14 @@ Examples:
         'reduce-project': cmd_reduce_project,
     }
 
-    return commands[args.subcommand](args)
+    try:
+        return commands[args.subcommand](args)
+    except KeyboardInterrupt:
+        # reduce-project says something more useful and handles this
+        # itself; this is the backstop for the rest, so that stopping a
+        # long run is an exit code rather than a stack trace.
+        print("\nInterrupted.", file=sys.stderr)
+        return 130
 
 
 if __name__ == '__main__':

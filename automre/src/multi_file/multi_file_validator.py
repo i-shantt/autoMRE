@@ -286,8 +286,12 @@ class ProjectFileValidator(Validator):
         # `command` and `cwd` are ignored — the whole-project validator
         # already knows how to run the reproduction command.
         original = self._target.read_text() if self._target.exists() else None
-        self._target.write_text(source_code)
         try:
+            # Inside the try so the restore below covers the write itself.
+            # Ctrl-C is an ordinary way to end a reduction that runs for
+            # hours, and it must not be able to land in the gap between
+            # writing a candidate and arming the code that takes it back.
+            self._target.write_text(source_code)
             return self._project.validate_detailed()
         finally:
             # Always restore between candidates. HDD-E carries the
