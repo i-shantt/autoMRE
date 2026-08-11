@@ -850,6 +850,69 @@ rejected every such instance; that assumption now belongs to the
 Gistify-style benchmark, which is the one that really does preserve a
 passing test.
 
+### What happened when it was pointed at SWE-bench
+
+Fifteen instances of SWE-bench Verified, chosen to span all twelve of its
+repositories, none of which autoMRE had been measured on:
+
+| | |
+|---|---:|
+| accepted by the gate | **7 / 15** |
+| rejected, environment cannot be built on Python 3.13 | 8 / 15 |
+| ingest wall clock | ~5 min |
+
+Three properties of that dataset, measured across all 500 instances,
+decide whether ingest works at all:
+
+| | share | needs |
+|---|---:|---|
+| test exists only after `test_patch` is applied | **62.6%** | apply the patch at checkout |
+| identifier is a pytest node id | 38.8% | works directly |
+| identifier is a unittest label (Django) | 41.6% | the repo's own `tests/runtests.py` |
+| identifier is a bare function name (sympy) | 19.6% | resolve it to a node id |
+
+The first is the one that matters most, and it is not an edge case: a
+SWE-bench instance is pinned before the fix *and before the test exists*,
+so nearly two thirds of the dataset names a test the checkout does not
+contain. Ingesting one without applying its patch produces a gate
+rejection that is perfectly accurate and completely misleading.
+
+**The eight rejections are all the same shape, and none of them are
+autoMRE's doing.** These are 2022–2023 commits: `imghdr` was removed in
+Python 3.13 (sphinx), `np.unicode_` in NumPy 2.0 (xarray),
+`soft_unicode` from markupsafe (requests), `setuptools.dep_util`
+(astropy); flask 2.3 calls `pkgutil.get_loader` with
+`filterwarnings = error`, and pytest 7.2 calls `ast.Str`. Every one is a
+pinned-dependency problem, which is exactly why SWE-bench ships a Docker
+image per instance. Reaching the rest of the dataset means per-instance
+interpreters, not a change to this code.
+
+#### One reduced end to end
+
+`mwaskom__seaborn-3187`, a real instance of a repository autoMRE had
+never seen, reduced with `--provision-per-task`:
+
+| | |
+|---|---:|
+| files | 152 → **18** |
+| lines | 54,019 → **4,156** (**92.31%**) |
+| execution fidelity | **1/1** |
+| queries | 5,228 |
+| wall clock | 53 min |
+
+The interesting figure is none of those. It is **0.097 queries per
+line** — *below* the 0.11–0.48 range measured on the benchmark's
+8k–17k-line repositories, at four times the size.
+
+That was the open question this work existed to answer, and it settles
+it in the useful direction. The worry was that cost grows with the
+repository, making large instances unaffordable: at 0.48 queries per
+line a 457k-line Django checkout would be 219,000 queries. It does not
+grow, because Phases 1–3 delete most of a large repository in bulk
+before Phase 4 ever walks it, and Phase 4 is ~97% of the queries.
+Reducing all seven accepted instances is an estimated **19 core-hours**,
+which is a laptop overnight rather than a cluster.
+
 ### Where the idea came from
 
 [SWE-Hub](https://arxiv.org/abs/2603.00575) (2026) is a production system
