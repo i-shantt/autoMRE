@@ -234,6 +234,16 @@ and `python-poetry/tomlkit 0.13.2`
 in `evaluation/results_gistify_decorators.json` (requests, flask) and
 `evaluation/results_gistify_tomlkit_fixed.json` (tomlkit).
 
+Re-run in one pass after the reduction pipeline moved onto the shared
+[readiness gate](#pointing-it-at-a-repository-it-has-never-seen):
+`evaluation/results_gistify_provision.json`. Every row above came back
+identical — the same surviving lines, the same file counts, the same
+22,931 queries and the same 182 timeouts. That is the point of running
+it. A refactor that touches how the environment is built and how the
+baseline is captured is exactly the kind that moves numbers quietly,
+and the only way to know it did not is to spend the 3.3 hours and diff
+the table.
+
 ### What the last two fixes bought
 
 Every task above was re-measured after the [decorated-definition
