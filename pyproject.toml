@@ -29,6 +29,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The test suite. pytest is not a runtime dependency — autoMRE runs your
+# reproduction command in your environment, not in this one — but a clean
+# `pip install -e .` then left `python3 -m pytest automre/tests/`, the
+# command the README documents, with no pytest to run it.
+dev = [
+    "pytest>=8.0",
+]
 # Benchmarking against Gistify-style tasks; needs pytest to be on PATH
 # inside the target project's venv, not this one.
 bench = [

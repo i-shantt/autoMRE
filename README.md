@@ -87,7 +87,7 @@ below](#the-halving-descent).
 ### In half a minute
 
 ```bash
-pip install -e .
+pip install -e ".[dev]"      # plain `pip install -e .` if you don't want the tests
 ./entrypoint.sh
 ```
 
@@ -127,7 +127,9 @@ same path entry. From the repo root the module form fails with
 ### The rest
 
 ```bash
-# Tests (70, ~21 s)
+# Tests (70, ~21 s). pytest comes from the [dev] extra above; it is not
+# a runtime dependency, because autoMRE runs your reproduction command
+# in your environment rather than in its own.
 python3 -m pytest automre/tests/
 
 # Full benchmark. Provisions a pinned venv on first run.

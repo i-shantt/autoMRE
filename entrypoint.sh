@@ -33,12 +33,19 @@ check_env() {
     # Deliberately does not install anything. A script that quietly
     # writes to the interpreter it happens to find is a worse trade than
     # one line of instruction.
-    if ! python3 -c "import tree_sitter, tree_sitter_python, coverage" \
-            2> /dev/null; then
-        print_error "autoMRE's dependencies are missing. Install the package first:"
+    local missing=""
+    python3 -c "import tree_sitter, tree_sitter_python, coverage" 2> /dev/null \
+        || missing="autoMRE's dependencies"
+    # Checked separately because it is the one that used to be missing on
+    # a clean install, and failing here with the fix beats failing four
+    # lines later with "No module named pytest".
+    python3 -c "import pytest" 2> /dev/null \
+        || missing="${missing:+$missing and }pytest"
+    if [ -n "$missing" ]; then
+        print_error "$missing not installed. Install the package first:"
         echo ""
         echo "    python3 -m venv .venv && source .venv/bin/activate"
-        echo "    pip install -e ."
+        echo "    pip install -e \".[dev]\""
         echo ""
         exit 1
     fi
