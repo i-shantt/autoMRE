@@ -64,7 +64,7 @@ _PACKAGE_EXCLUDE = {".pytest_cache", "__pycache__", ".git", ".mypy_cache",
 
 # How far the ETA range is spread either side of the point estimate. The
 # per-line query factor is calibrated across repos that differ by a
-# factor of four (requests 0.12 q/line, tomlkit 0.47), so a tight range
+# factor of four (requests 0.11 q/line, tomlkit 0.48), so a tight range
 # would be a lie.
 ETA_LOW = 0.55
 ETA_HIGH = 2.0

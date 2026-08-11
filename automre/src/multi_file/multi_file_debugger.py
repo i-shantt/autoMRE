@@ -121,7 +121,7 @@ class MultiFileDebugger:
     MAX_SWEEP_ROUNDS = 10
 
     # Queries a reduction spends, per line of reducible code. Calibrated
-    # on the benchmark: requests runs 0.12, flask 0.16-0.20, tomlkit
+    # on the benchmark: requests runs 0.11, flask 0.14-0.17, tomlkit
     # 0.31-0.47, and a 41-line toy project 0.90 because the per-file
     # probes of Phases 2 and 5 are a fixed cost that a small tree cannot
     # amortize. A factor that varies 8x is not something to build a

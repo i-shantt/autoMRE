@@ -274,8 +274,8 @@ def main() -> int:
     if accepted:
         total_lines = sum(r.lines for r in accepted)
         print(f"[ingest] {total_lines} lines across accepted tasks; at the "
-              f"measured 0.12-0.47 queries per line that is roughly "
-              f"{int(total_lines * 0.12):,}-{int(total_lines * 0.47):,} "
+              f"measured 0.11-0.48 queries per line that is roughly "
+              f"{int(total_lines * 0.11):,}-{int(total_lines * 0.48):,} "
               f"queries to reduce them all")
     return 0 if accepted else 1
 

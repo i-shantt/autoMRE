@@ -152,6 +152,65 @@ python3 evaluation/gistify_runner.py --only requests
 
 ---
 
+## What it needs
+
+Worth stating plainly, because two of these are the opposite of what
+people usually assume about a tool with an `ml/` directory in it.
+
+| | |
+|---|---|
+| **GPU** | None. Not for anything. The optional learned oracle is a scikit-learn model that runs on CPU in microseconds. |
+| **CPU** | **One core.** Sampled during a live run: the parent process sits at 0% waiting, and exactly one child test process holds one core at 100%. |
+| **Memory** | ~13 MB for autoMRE itself, plus whatever your own test needs — that subprocess is the only thing here with a real footprint. |
+| **Disk** | A copy of your project, plus a virtualenv if one is being provisioned for it. |
+| **Python** | `requires-python = ">=3.10"`. Everything in this file was measured on 3.13, which is the only version currently exercised. |
+
+**A bigger machine will not make one reduction faster.** Reduction is a
+strictly sequential loop — delete, run the test, decide, repeat — and it
+saturates a single core no matter how many are available. Sixteen cores
+finish one reduction in exactly the time one core does. What extra cores
+*do* buy is more reductions at once, which is why the benchmark harness
+runs tasks back to back rather than trying to split one. (A speculative
+parallel Phase 4b exists on the `parallel-oracle` branch and reached
+1.33× peak; it is not merged.)
+
+### The cost is time, and it is arithmetic rather than a spec
+
+Two numbers decide everything, and only one of them is about your
+hardware:
+
+```
+queries      ≈  0.11 to 0.48  ×  (lines of Python in your project)
+wall clock   ≈  queries  ×  (how long your test takes to run once)
+```
+
+Both ranges are measured across the ten benchmark tasks below. `requests`
+sits at the bottom (0.11 queries/line), `tomlkit` at the top (0.48) —
+an eightfold spread on the same tool, which is why autoMRE reports
+progress as a range and never as a countdown.
+
+Worked: 11,209 lines of `requests` × 0.11 ≈ 1,200 queries, and its test
+runs in 0.18 s → **3.6 minutes**, which is what it actually takes.
+
+**The multiplier is the thing to look at before you start.** Your test's
+runtime is paid roughly a thousand times over. A 0.2-second test on a
+10,000-line project is about four minutes; the same project with a
+5-second test is about two hours. If your reproduction command is slow,
+make it faster before reducing — narrowing `pytest tests/` down to a
+single `::test_name` is usually the whole fix, and it is free.
+
+### One real constraint on the test itself
+
+Your reproduction command runs **thousands of times**, in a copy of your
+project, concurrently with nothing. It therefore has to be safe to
+repeat: no dependence on a network service that will rate-limit you, no
+writes to a shared database, no reliance on state left behind by a
+previous run. A test that behaves differently on its second run is
+rejected before reduction starts rather than quietly producing nonsense —
+see [the readiness gate](#pointing-it-at-a-repository-it-has-never-seen).
+
+---
+
 ## Results
 
 Ten pytest tasks across `psf/requests v2.32.3`, `pallets/flask 3.0.3`
