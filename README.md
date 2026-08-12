@@ -893,6 +893,49 @@ manifest the benchmark runner already reads. Rejected instances are
 written out **with the reason**, since an instance that disappears
 quietly is how a benchmark starts measuring nothing again.
 
+### Running it on instances of your own
+
+The input is a JSON or JSONL file of records. Nothing is tied to
+SWE-bench — three hand-written dicts work — but its export happens to be
+exactly this shape:
+
+```json
+[{"instance_id": "psf__requests-1234",
+  "repo": "psf/requests",
+  "base_commit": "abc123",
+  "FAIL_TO_PASS": ["tests/test_a.py::test_x"],
+  "test_patch": "--- a/tests/test_a.py\n+++ b/..."}]
+```
+
+`test_patch` is optional and usually necessary: 62.6% of SWE-bench
+Verified names a test the checkout does not contain until it is applied.
+SWE-bench Verified itself needs no library to fetch — it is served as
+plain JSON, 100 rows at a time:
+
+```bash
+curl -s "https://datasets-server.huggingface.co/rows?dataset=princeton-nlp/SWE-bench_Verified&config=default&split=test&offset=0&length=100" \
+  | python3 -c "import json,sys; print(json.dumps([r['row'] for r in json.load(sys.stdin)['rows']]))" \
+  > instances.json
+```
+
+Then ingest, and reduce whatever survives the gate:
+
+```bash
+python3 evaluation/ingest_tasks.py --instances instances.json --limit 15
+python3 evaluation/gistify_runner.py \
+    --tasks evaluation/tasks_ingested.json --provision-per-task
+```
+
+`--provision-per-task` is not optional for an ingested manifest. The
+benchmark shares one virtualenv across its three repositories because
+they were chosen to coexist; twelve repositories at twelve pinned
+commits have conflicting dependency sets, and one environment cannot
+hold them.
+
+Run the ingest before budgeting anything. It is cheap — fifteen
+instances took about five minutes, most of it cloning — and it is where
+you find out how many of them your machine can actually build.
+
 One consequence worth stating: SWE-bench-shaped instances are pinned at
 the commit *before* the fix, so their `FAIL_TO_PASS` test **fails**. For
 a minimal reproducer that is the ordinary case rather than a problem —
