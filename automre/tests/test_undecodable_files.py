@@ -79,6 +79,34 @@ def test_the_file_it_would_not_touch_comes_back_byte_identical(tmp_path):
     assert (proj / "fixture_latin1.py").read_bytes() == LATIN1
 
 
+def test_a_symlink_out_of_the_project_is_refused(tmp_path):
+    """The reducer's remit is the directory it was given.
+
+    `resolve()` follows symlinks, so a link pointing out of the tree put
+    somebody else's file into the candidate set. Nothing outside was ever
+    damaged, but only because `relative_to` happened to raise ValueError
+    several phases later and kill the run — a crash standing in for a
+    boundary. The boundary is now the boundary.
+    """
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    precious = outside / "precious.py"
+    precious.write_text("IMPORTANT = 'never touched'\n")
+    before = precious.read_bytes()
+
+    proj = _project(tmp_path)
+    (proj / "escaped.py").symlink_to(precious)
+
+    result = MultiFileDebugger().reduce_project(
+        proj,
+        [sys.executable, "-m", "pytest", "tests/test_mylib.py", "-x", "-q"])
+
+    assert [p.name for p in result.outside_project_files] == ["precious.py"]
+    assert precious.exists()
+    assert precious.read_bytes() == before
+    assert not any(p == precious.resolve() for p in result.unreachable_deleted)
+
+
 def test_line_counting_survives_bytes_it_cannot_decode(tmp_path):
     """Counting lines is the first thing done to a tree, and it crashed.
 

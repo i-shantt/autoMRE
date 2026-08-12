@@ -74,6 +74,9 @@ class MultiFileReductionResult:
     # excluded part of the tree looks exactly like a run that considered
     # all of it and found nothing to remove.
     undecodable_files: List[Path] = field(default_factory=list)
+    # .py files reached through a symlink that leaves the project, and so
+    # never candidates: the reducer's remit is the directory it was given.
+    outside_project_files: List[Path] = field(default_factory=list)
     # Oracle bookkeeping — zero when it isn't in use.
     oracle_enabled: bool = False
     oracle_skipped_attempts: int = 0   # Phase 4b removals never tried
@@ -252,6 +255,12 @@ class MultiFileDebugger:
                                            match_strategy=self.match_strategy)
             validator.set_original_from(
                 trace.output, 0 if trace.success else trace.return_code)
+
+        if analysis.outside_project_files:
+            self._log(
+                f"  refusing {len(analysis.outside_project_files)} file(s) "
+                "reached by a symlink out of the project; they are not "
+                "this reduction's to change")
 
         if analysis.undecodable_files:
             self._log(
@@ -609,6 +618,7 @@ class MultiFileDebugger:
             protected_line_count=sum(self._line_count(f) for f in protected
                                      if f.exists()),
             undecodable_files=list(analysis.undecodable_files),
+            outside_project_files=list(analysis.outside_project_files),
             oracle_enabled=self.oracle is not None,
             oracle_skipped_attempts=oracle_skipped_attempts,
             oracle_held_back_files=oracle_held_back_files,
