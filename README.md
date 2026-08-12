@@ -693,6 +693,46 @@ gate is for. The benchmark had one and the app did not, and that is the
 argument for the two of them sharing a module rather than each growing
 its own.
 
+### Three repositories could not tell it what was broken
+
+Every entry above was found on `requests`, `flask` or `tomlkit`. Pointing
+the reducer at SWE-bench instances broke it three more ways within the
+first two repositories it had never seen, and none of the three is
+reachable from the benchmark, because all three of its repos are tidy in
+exactly the ways that matter:
+
+| the reducer assumed | broken by | what it looked like |
+|---|---|---|
+| source files are UTF-8 | one latin-1 file in pylint | crash, **reported as 0% reduction and fidelity 0** |
+| paths stay inside the project | any symlink leaving the tree | crash; an outside file sitting in the delete set |
+| tests run under pytest | django, sympy | the oracle **entirely unprotected** |
+
+The first is the one worth dwelling on. `pylint` ships
+`tests/functional/i/implicit/implicit_str_concat_latin1.py` — one file in
+2,189 — and it killed the run in `_line_count`, the very first thing done
+to a tree, before a single query was spent. It did not present as an
+encoding problem. It presented as a row in a results table reading 0%,
+which reads as "this repository is hard to reduce". With the crash fixed,
+pylint reduces **97.96%**, better than anything in the benchmark. A bug
+that disguises itself as a result is the worst kind this project keeps
+finding.
+
+The third is the one that mattered most. `_is_test_runner` knew pytest,
+py.test, unittest and nose2; django's suite runs only through
+`tests/runtests.py`, so the command read as "python some_script.py" —
+the case where the script *is* the subject — and `_protected_files`
+returned nothing. django reduced with **0 lines protected**. That
+survived only because the target test fails, so its output pins the test
+body; the same command with a *passing* test is the flask stub-out
+above, arriving through a door nobody had checked.
+
+None of these were findable by reading. The benchmark passes all three
+gates on every run, and always will, because its three repositories do
+not contain a non-UTF-8 file, a symlink, or a test suite that declines to
+be pytest. That is the argument for ingest that the reduction numbers do
+not make: the value was never a fourth repository to score against, it
+was a repository that could disagree.
+
 ### The check that catches these is a vacuity probe, not a size assertion
 
 Size cannot distinguish a good reduction from a destroyed one.
