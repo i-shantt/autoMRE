@@ -191,6 +191,10 @@ class GistifyResult:
     time_seconds: float
     error: Optional[str] = None
     protected_lines: int = 0
+    # .py files the reducer refused to touch because they are not valid
+    # UTF-8. Recorded so a lower reduction figure can be told apart from
+    # a tree that was only partly examined.
+    undecodable_files: int = 0
     # Queries killed by the per-query time limit. Recorded because a
     # handful of them can dominate a task's wall clock — on tomlkit, ten
     # queries out of 2,699 were 76% of all query time — while looking
@@ -509,6 +513,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
             total_queries=summary.total_queries,
             time_seconds=elapsed,
             protected_lines=summary.protected_line_count,
+            undecodable_files=len(summary.undecodable_files),
             timed_out_queries=summary.timed_out_queries,
             oracle_enabled=summary.oracle_enabled,
             oracle_skipped_attempts=summary.oracle_skipped_attempts,

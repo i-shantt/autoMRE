@@ -379,6 +379,13 @@ def cmd_reduce_project(args):
               f"{result.original_line_count - result.protected_line_count} -> "
               f"{result.final_line_count - result.protected_line_count} "
               f"({result.reducible_reduction_rate*100:.1f}% removed)")
+    if result.undecodable_files:
+        # Said out loud rather than left in the gap between the file
+        # count and the reduction: these were never candidates, and a
+        # run that quietly skipped part of the tree looks exactly like
+        # one that examined all of it.
+        print(f"Left untouched:    {len(result.undecodable_files)} file(s) "
+              f"not valid UTF-8 (cannot be cut safely)")
     print(f"Unreachable dropped: {len(result.unreachable_deleted)}")
     print(f"Imported-only dropped: {len(result.imported_deleted)}")
     print(f"Inlined away:      {len(result.inlined_away)}")

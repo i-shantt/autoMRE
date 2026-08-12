@@ -68,6 +68,12 @@ class MultiFileReductionResult:
     # 1016 of the 1198 surviving lines, so a total-line figure of 89.3%
     # conceals a 98.2% reduction of the code actually under reduction.
     protected_line_count: int = 0
+    # .py files left untouched because they are not valid UTF-8, so the
+    # reducer cannot cut them without risking their bytes. Reported for
+    # the same reason the two counts above are: a run that quietly
+    # excluded part of the tree looks exactly like a run that considered
+    # all of it and found nothing to remove.
+    undecodable_files: List[Path] = field(default_factory=list)
     # Oracle bookkeeping — zero when it isn't in use.
     oracle_enabled: bool = False
     oracle_skipped_attempts: int = 0   # Phase 4b removals never tried
@@ -602,6 +608,7 @@ class MultiFileDebugger:
             time_seconds=time.time() - start,
             protected_line_count=sum(self._line_count(f) for f in protected
                                      if f.exists()),
+            undecodable_files=list(analysis.undecodable_files),
             oracle_enabled=self.oracle is not None,
             oracle_skipped_attempts=oracle_skipped_attempts,
             oracle_held_back_files=oracle_held_back_files,
