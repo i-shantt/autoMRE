@@ -122,6 +122,24 @@ locally and always has:
 automre reduce-project ./my_project -c "pytest tests/test_bug.py::test_foo"
 ```
 
+## Why a job can be refused before it starts
+
+Between installing the project and the first deletion, the worker runs
+`provision.gate.check`: the named test has to exist, the command has to
+run, do the same thing twice, and stop working when the package is
+renamed aside. A job that fails any of those is reported as failed with
+the reason rather than reduced.
+
+This is not caution for its own sake. Without it, a job naming a test
+that does not exist ran to completion and reported success: pytest exited
+4, the oracle adopted *exiting 4* as the behavior to preserve, and the
+reducer deleted everything not needed to keep exiting 4. The download
+contained the library reduced to blank lines.
+
+A reduction cannot notice that from the inside — every candidate really
+does preserve the behavior it was handed. The only place to catch it is
+before the first query.
+
 ## How progress is reported
 
 A reduction cannot say how long it will take, and the interesting part
@@ -130,9 +148,10 @@ of this UI is that it does not pretend to.
 The unit of work is the **query**: one run of your test command. How
 many a project needs depends on how much of it turns out to be
 removable, which is only learned by asking — measured across the
-benchmark repos, the cost varies from 0.12 to 0.90 queries per line, an
-eightfold spread. So the query count is displayed as a count of work
-done, never as a fraction of a total.
+benchmark repos, the cost varies from 0.11 to 0.48 queries per line, a
+fourfold spread, and a 54k-line repository outside the benchmark came in
+under the bottom of that range at 0.097. So the query count is displayed
+as a count of work done, never as a fraction of a total.
 
 The progress bar instead tracks **lines examined out of lines to
 examine**. The reducer walks the surviving files once in Phase 4, which

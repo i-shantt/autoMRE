@@ -1,0 +1,92 @@
+{
+  "rejected": [
+    {
+      "task_id": "astropy__astropy-14995",
+      "repo": "https://github.com/astropy/astropy",
+      "commit": "b16c7d12ccbc7b2d20364b89fb44285bcbfede54",
+      "accepted": false,
+      "reason": "could not provision the environment at step 'project': ModuleNotFoundError: No module named 'setuptools.dep_util'",
+      "files": 899,
+      "lines": 374114,
+      "gate_runs": 0,
+      "seconds": 4.974923133850098
+    },
+    {
+      "task_id": "matplotlib__matplotlib-26466",
+      "repo": "https://github.com/matplotlib/matplotlib",
+      "commit": "3dd06a46750d174f821df5377996f493f1af4ebb",
+      "accepted": false,
+      "reason": "could not provision the environment at step 'project': subprocess.CalledProcessError: Command '['make']' returned non-zero exit status 2.",
+      "files": 895,
+      "lines": 245187,
+      "gate_runs": 0,
+      "seconds": 21.66870617866516
+    },
+    {
+      "task_id": "pallets__flask-5014",
+      "repo": "https://github.com/pallets/flask",
+      "commit": "7ee9ceb71e868944a46e1ff00b506772a53a4f1d",
+      "accepted": false,
+      "reason": "collection/setup error before any assertion: 1 error in 0.06s",
+      "files": 80,
+      "lines": 17483,
+      "gate_runs": 1,
+      "seconds": 13.852333068847656
+    },
+    {
+      "task_id": "psf__requests-5414",
+      "repo": "https://github.com/psf/requests",
+      "commit": "39d0fdd9096f7dceccbc8f82e1eda7dd64717a8e",
+      "accepted": false,
+      "reason": "removing requests entirely did not change the result \u2014 the command is not running the code in this directory, so any reduction measured here is vacuous",
+      "files": 35,
+      "lines": 10139,
+      "gate_runs": 3,
+      "seconds": 7.744369029998779
+    },
+    {
+      "task_id": "pydata__xarray-7233",
+      "repo": "https://github.com/pydata/xarray",
+      "commit": "51d37d1be95547059251076b3fadaa317750aab3",
+      "accepted": false,
+      "reason": "pytest usage error (rc=4): E   AttributeError: `np.unicode_` was removed in the NumPy 2.0 release. Use `np.str_` instead.",
+      "files": 173,
+      "lines": 135891,
+      "gate_runs": 1,
+      "seconds": 14.537482023239136
+    },
+    {
+      "task_id": "pytest-dev__pytest-10356",
+      "repo": "https://github.com/pytest-dev/pytest",
+      "commit": "3c1534944cbd34e8a41bc9e76818018fadefc9a1",
+      "accepted": false,
+      "reason": "pytest usage error (rc=4): ImportError while loading conftest '/private/tmp/claude-501/-Users-ishant-autoMRE/ed7e8b5b-44c2-4dc1-845e-41b09e07b433/scratchpad/pilot_ws5/pytest-dev__pytest-10356/testing/conftest.py'.",
+      "files": 244,
+      "lines": 80833,
+      "gate_runs": 1,
+      "seconds": 4.190046072006226
+    },
+    {
+      "task_id": "scikit-learn__scikit-learn-26323",
+      "repo": "https://github.com/scikit-learn/scikit-learn",
+      "commit": "586f4318ffcdfbd9a1093f35ad43e81983740b66",
+      "accepted": false,
+      "reason": "could not provision the environment at step 'project': Cython.Compiler.Errors.CompileError: sklearn/linear_model/_cd_fast.pyx",
+      "files": 920,
+      "lines": 370094,
+      "gate_runs": 0,
+      "seconds": 18.161630153656006
+    },
+    {
+      "task_id": "sphinx-doc__sphinx-10673",
+      "repo": "https://github.com/sphinx-doc/sphinx",
+      "commit": "f35d2a6cc726f97d0e859ca7a0e1729f7da8a6c8",
+      "accepted": false,
+      "reason": "pytest usage error (rc=4): ERROR: found no collectors for /private/tmp/claude-501/-Users-ishant-autoMRE/ed7e8b5b-44c2-4dc1-845e-41b09e07b433/scratchpad/pilot_ws5/sphinx-doc__sphinx-10673/tests/test_environment_toctree.py::test_toctree_index",
+      "files": 556,
+      "lines": 104569,
+      "gate_runs": 1,
+      "seconds": 6.967896938323975
+    }
+  ]
+}

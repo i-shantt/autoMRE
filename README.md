@@ -1,13 +1,15 @@
 # autoMRE
 
-**Give it a Python project and one test. It hands back the smallest
-version of that project where the test still behaves exactly the same
-way.**
+**Automatically builds a minimal reproducible example (MRE) from a
+Python project.** Give it your project and one test; it hands back the
+smallest version of that project where the test still behaves exactly the
+same way.
 
 Everything the test does not need is deleted — whole files, then
 definitions, then individual statements. After every single deletion the
 test is run again, and the deletion is kept only if the output is
-unchanged.
+unchanged. Nothing is guessed: every line that survives has been proven
+necessary by re-running your own test.
 
 ```
 psf/requests, reduced to keep one test passing
@@ -35,7 +37,9 @@ That loop is mechanical, so it can be automated. The technique is called
 for single files. autoMRE applies it across a whole project, using
 coverage data to decide what to try deleting first.
 
-The output is an **MRE**: a minimal reproducible example.
+What comes out is a **minimal reproducible example** — the same thing a
+maintainer means when they ask you to attach one, except produced by
+measurement rather than by guessing.
 
 ---
 
@@ -99,10 +103,17 @@ hours — it prints the command for it.
 ### In a browser
 
 `web/` contains a small web app: drop in a zipped project, name the
-test, watch it shrink, download the result. The UI deploys to Vercel;
-the engine has to run somewhere that can hold a job for minutes to
-hours, so it ships as a container. Setup is in
-[`web/README.md`](web/README.md).
+test, watch it shrink, download the result.
+
+**There is no hosted instance yet** — run it locally with two commands
+(worker, then UI), both in [`web/README.md`](web/README.md). The UI is a
+Next.js app built to deploy to Vercel, but the engine cannot go there:
+a reduction runs thousands of subprocesses over minutes to hours, and
+Vercel functions cap at 800 s with an ephemeral filesystem. So the UI
+ships to Vercel and the engine ships as a container to somewhere that
+can hold a long job. Both halves are written and tested; neither is
+deployed, because deploying a service that executes uploaded code needs
+a sandbox this does not yet have.
 
 ### On the command line
 
@@ -141,6 +152,65 @@ python3 evaluation/gistify_runner.py --only requests
 
 ---
 
+## What it needs
+
+Worth stating plainly, because two of these are the opposite of what
+people usually assume about a tool with an `ml/` directory in it.
+
+| | |
+|---|---|
+| **GPU** | None. Not for anything. The optional learned oracle is a scikit-learn model that runs on CPU in microseconds. |
+| **CPU** | **One core.** Sampled during a live run: the parent process sits at 0% waiting, and exactly one child test process holds one core at 100%. |
+| **Memory** | ~13 MB for autoMRE itself, plus whatever your own test needs — that subprocess is the only thing here with a real footprint. |
+| **Disk** | A copy of your project, plus a virtualenv if one is being provisioned for it. |
+| **Python** | `requires-python = ">=3.10"`. Everything in this file was measured on 3.13, which is the only version currently exercised. |
+
+**A bigger machine will not make one reduction faster.** Reduction is a
+strictly sequential loop — delete, run the test, decide, repeat — and it
+saturates a single core no matter how many are available. Sixteen cores
+finish one reduction in exactly the time one core does. What extra cores
+*do* buy is more reductions at once, which is why the benchmark harness
+runs tasks back to back rather than trying to split one. (A speculative
+parallel Phase 4b exists on the `parallel-oracle` branch and reached
+1.33× peak; it is not merged.)
+
+### The cost is time, and it is arithmetic rather than a spec
+
+Two numbers decide everything, and only one of them is about your
+hardware:
+
+```
+queries      ≈  0.11 to 0.48  ×  (lines of Python in your project)
+wall clock   ≈  queries  ×  (how long your test takes to run once)
+```
+
+Both ranges are measured across the ten benchmark tasks below. `requests`
+sits at the bottom (0.11 queries/line), `tomlkit` at the top (0.48) —
+an eightfold spread on the same tool, which is why autoMRE reports
+progress as a range and never as a countdown.
+
+Worked: 11,209 lines of `requests` × 0.11 ≈ 1,200 queries, and its test
+runs in 0.18 s → **3.6 minutes**, which is what it actually takes.
+
+**The multiplier is the thing to look at before you start.** Your test's
+runtime is paid roughly a thousand times over. A 0.2-second test on a
+10,000-line project is about four minutes; the same project with a
+5-second test is about two hours. If your reproduction command is slow,
+make it faster before reducing — narrowing `pytest tests/` down to a
+single `::test_name` is usually the whole fix, and it is free.
+
+### One real constraint on the test itself
+
+Your reproduction command runs **thousands of times**, in a copy of your
+project, concurrently with nothing. It therefore has to be safe to
+repeat: no dependence on a network service that will rate-limit you, no
+writes to a shared database, no reliance on state left behind by a
+previous run. A test that behaves differently on its second run is
+rejected before reduction starts rather than quietly producing nonsense —
+see [the readiness gate](#pointing-it-at-a-repository-it-has-never-seen).
+
+---
+
 ## Results
 
 Ten pytest tasks across `psf/requests v2.32.3`, `pallets/flask 3.0.3`
@@ -163,6 +233,16 @@ and `python-poetry/tomlkit 0.13.2`
 **87.03% aggregate line reduction, 10/10 execution fidelity.** Raw data
 in `evaluation/results_gistify_decorators.json` (requests, flask) and
 `evaluation/results_gistify_tomlkit_fixed.json` (tomlkit).
+
+Re-run in one pass after the reduction pipeline moved onto the shared
+[readiness gate](#pointing-it-at-a-repository-it-has-never-seen):
+`evaluation/results_gistify_provision.json`. Every row above came back
+identical — the same surviving lines, the same file counts, the same
+22,931 queries and the same 182 timeouts. That is the point of running
+it. A refactor that touches how the environment is built and how the
+baseline is captured is exactly the kind that moves numbers quietly,
+and the only way to know it did not is to spend the 3.3 hours and diff
+the table.
 
 ### What the last two fixes bought
 
@@ -593,6 +673,26 @@ measurement until shown otherwise, not a finding. And **a correction is
 a claim like any other**: this one overturned a *correct* statement and
 cost more than the error it was fixing.
 
+### The same hole was open in the web app
+
+Every entry above is about the benchmark, because that is where the
+checks lived. When they were moved into a shared module and the web
+worker was pointed at them, the worker turned out to have the very first
+failure on this list, still open.
+
+A job naming a test that does not exist ran to **"done"**. pytest exited
+4, the oracle adopted *exiting 4* as the behavior to preserve, and the
+reducer deleted everything not needed to keep exiting 4. The download
+contained `mylib.py` reduced to five blank lines. The summary read
+"11 → 9 lines", because blank lines are still lines.
+
+Reduction cannot catch this from the inside — every candidate genuinely
+does preserve the behavior it was given; the behavior was worthless. The
+check has to happen before the first query, which is what the readiness
+gate is for. The benchmark had one and the app did not, and that is the
+argument for the two of them sharing a module rather than each growing
+its own.
+
 ### The check that catches these is a vacuity probe, not a size assertion
 
 Size cannot distinguish a good reduction from a destroyed one.
@@ -712,6 +812,131 @@ to chase it.
 
 ---
 
+## Pointing it at a repository it has never seen
+
+The ten benchmark tasks are hand-written. So are the eighteen the learned
+oracle trains on. That is not an accident of effort — it is the cost of
+adding a repository: someone has to work out how to install it, which
+test to name, and whether the result is worth measuring. It is also why
+the oracle has two cross-validation folds and why the fold scores
+disagree (0.850 against 0.963), which is the number that most wants a
+third repository behind it.
+
+`automre/src/provision/` is that step, in three pieces:
+
+| | |
+|---|---|
+| `provision()` | a virtualenv per project: coverage, then the project, then its test extra, then pytest **only if** the first three did not already supply one |
+| `discover()` | pytest node ids read out of the source, without running pytest |
+| `check()` | the readiness gate: the named test exists, the command runs, it does the same thing twice, and removing the package changes the result |
+
+The install order in `provision()` is the whole design. Putting pytest
+last is what lets a project keep its own pin without anything parsing a
+`pyproject.toml` to find it — and flask is why that matters, since its
+conftest reads a sentinel removed in pytest 9.1.
+
+`evaluation/ingest_tasks.py` runs all three over a list of
+`(repo, commit, failing test)` records and writes the survivors as a
+manifest the benchmark runner already reads. Rejected instances are
+written out **with the reason**, since an instance that disappears
+quietly is how a benchmark starts measuring nothing again.
+
+One consequence worth stating: SWE-bench-shaped instances are pinned at
+the commit *before* the fix, so their `FAIL_TO_PASS` test **fails**. For
+a minimal reproducer that is the ordinary case rather than a problem —
+the question is what the smallest project that still crashes this way is.
+The gate demanded a passing command until this landed, which would have
+rejected every such instance; that assumption now belongs to the
+Gistify-style benchmark, which is the one that really does preserve a
+passing test.
+
+### What happened when it was pointed at SWE-bench
+
+Fifteen instances of SWE-bench Verified, chosen to span all twelve of its
+repositories, none of which autoMRE had been measured on:
+
+| | |
+|---|---:|
+| accepted by the gate | **7 / 15** |
+| rejected, environment cannot be built on Python 3.13 | 8 / 15 |
+| ingest wall clock | ~5 min |
+
+Three properties of that dataset, measured across all 500 instances,
+decide whether ingest works at all:
+
+| | share | needs |
+|---|---:|---|
+| test exists only after `test_patch` is applied | **62.6%** | apply the patch at checkout |
+| identifier is a pytest node id | 38.8% | works directly |
+| identifier is a unittest label (Django) | 41.6% | the repo's own `tests/runtests.py` |
+| identifier is a bare function name (sympy) | 19.6% | resolve it to a node id |
+
+The first is the one that matters most, and it is not an edge case: a
+SWE-bench instance is pinned before the fix *and before the test exists*,
+so nearly two thirds of the dataset names a test the checkout does not
+contain. Ingesting one without applying its patch produces a gate
+rejection that is perfectly accurate and completely misleading.
+
+**The eight rejections are all the same shape, and none of them are
+autoMRE's doing.** These are 2022–2023 commits: `imghdr` was removed in
+Python 3.13 (sphinx), `np.unicode_` in NumPy 2.0 (xarray),
+`soft_unicode` from markupsafe (requests), `setuptools.dep_util`
+(astropy); flask 2.3 calls `pkgutil.get_loader` with
+`filterwarnings = error`, and pytest 7.2 calls `ast.Str`. Every one is a
+pinned-dependency problem, which is exactly why SWE-bench ships a Docker
+image per instance. Reaching the rest of the dataset means per-instance
+interpreters, not a change to this code.
+
+#### One reduced end to end
+
+`mwaskom__seaborn-3187`, a real instance of a repository autoMRE had
+never seen, reduced with `--provision-per-task`:
+
+| | |
+|---|---:|
+| files | 152 → **18** |
+| lines | 54,019 → **4,156** (**92.31%**) |
+| reducible-only | 51,771 → **1,908** (**96.31%**) |
+| execution fidelity | **1/1** |
+| queries | 5,228 |
+| wall clock | 53 min |
+
+The reducible-only figure is the fair comparison with the benchmark's
+95.77%, since the named test is the question and is never removable.
+That an unseen repository lands slightly *above* the tuned benchmark is
+not evidence of anything except that seaborn had more dead weight to
+shed than requests does.
+
+The interesting figure is none of those. It is **0.097 queries per
+line** — *below* the 0.11–0.48 range measured on the benchmark's
+8k–17k-line repositories, at four times the size.
+
+That was the open question this work existed to answer, and it settles
+it in the useful direction. The worry was that cost grows with the
+repository, making large instances unaffordable: at 0.48 queries per
+line a 457k-line Django checkout would be 219,000 queries. It does not
+grow, because Phases 1–3 delete most of a large repository in bulk
+before Phase 4 ever walks it, and Phase 4 is ~97% of the queries.
+Reducing all seven accepted instances is an estimated **19 core-hours**,
+which is a laptop overnight rather than a cluster.
+
+### Where the idea came from
+
+[SWE-Hub](https://arxiv.org/abs/2603.00575) (2026) is a production system
+for manufacturing executable software-engineering tasks: an Env Agent
+that turns a repository snapshot into a reproducible environment, a Test
+Agent that finds the entrypoint, and a verification gate before anything
+is called a task. Its code and data are not released, so nothing here
+uses it — what is taken is the observation that those three steps belong
+together, which is precisely what was wrong in this repository, where two
+of them already existed in files that could not see each other.
+
+The relationship is worth stating plainly, because it runs the other way
+from the borrowing. SWE-Hub *generates* executable tasks and argues that
+agent progress is bottlenecked on them being brittle and expensive.
+autoMRE takes one task and produces the smallest environment that still
+exhibits it. Same problem, opposite end.
+
 ## Structure
 
 ```
@@ -726,6 +951,10 @@ automre/src/
     import_inliner.py         Phase 3
     coverage_pruner.py        Phase 4a
     multi_file_debugger.py    orchestrator, oracle-file protection, progress
+  provision/
+    environment.py            a virtualenv per project
+    discovery.py              pytest node ids, read not run
+    gate.py                   is this worth reducing at all
   ml/                       learned removability oracle (optional extra)
 automre/tests/              soundness, vacuity, and unit tests
 automre/examples/           small projects with real bugs, used by
@@ -736,6 +965,9 @@ entrypoint.sh               tests plus one example reduction, ~30 s
 evaluation/
   gistify_runner.py         benchmark harness
   gistify_tasks.json        10-task manifest (requests, flask, tomlkit)
+  ingest_tasks.py           (repo, commit, failing test) -> a manifest,
+                            everything that fails the gate written out
+                            with its reason
   cloud_bench.py            same harness for Colab/Kaggle, plus the
                             --ablation coverage-prune A/B
   results_gistify_*.json    results per configuration
