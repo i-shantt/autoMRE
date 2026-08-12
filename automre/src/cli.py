@@ -386,6 +386,12 @@ def cmd_reduce_project(args):
         # one that examined all of it.
         print(f"Left untouched:    {len(result.undecodable_files)} file(s) "
               f"not valid UTF-8 (cannot be cut safely)")
+    if result.outside_project_files:
+        # Worth saying out loud rather than counting as a skip: a symlink
+        # out of the tree means the project points at code this run is
+        # not reducing, which usually surprises whoever set it up.
+        print(f"Refused:           {len(result.outside_project_files)} "
+              f"file(s) reached by a symlink out of the project")
     print(f"Unreachable dropped: {len(result.unreachable_deleted)}")
     print(f"Imported-only dropped: {len(result.imported_deleted)}")
     print(f"Inlined away:      {len(result.inlined_away)}")

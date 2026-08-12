@@ -705,6 +705,7 @@ exactly the ways that matter:
 |---|---|---|
 | source files are UTF-8 | one latin-1 file in pylint | crash, **reported as 0% reduction and fidelity 0** |
 | paths stay inside the project | any symlink leaving the tree | crash; an outside file sitting in the delete set |
+
 | tests run under pytest | django, sympy | the oracle **entirely unprotected** |
 
 The first is the one worth dwelling on. `pylint` ships
@@ -716,6 +717,17 @@ which reads as "this repository is hard to reduce". With the crash fixed,
 pylint reduces **97.96%**, better than anything in the benchmark. A bug
 that disguises itself as a result is the worst kind this project keeps
 finding.
+
+The symlink one needs a caveat, because the exposure is narrower than
+the row suggests and overstating it would be the same sin as the rest of
+this section. Both the CLI and the benchmark copy a project with
+`shutil.copytree`, whose default dereferences symlinks into ordinary
+files inside the copy, so neither can reach outside through one. What
+was actually broken is a direct `reduce_project` call on a tree that
+still has its symlinks: the outside file entered the candidate set, and
+nothing outside was ever damaged only because `relative_to` raised
+several phases later and killed the run. A crash was standing in for a
+boundary. The boundary is now a boundary.
 
 The third is the one that mattered most. `_is_test_runner` knew pytest,
 py.test, unittest and nose2; django's suite runs only through
