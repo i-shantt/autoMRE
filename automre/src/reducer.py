@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import ast
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional, Set, Tuple
+from typing import List, Optional, Set, Tuple
 
 from parser import (
     byte_to_char_offsets,
@@ -515,7 +515,7 @@ class HybridDeltaDebugger:
         stats.time_seconds = time.time() - start_time
 
         if self.verbose:
-            print(f"\nReduction complete:")
+            print("\nReduction complete:")
             print(f"  Original: {stats.original_size} lines")
             print(f"  Minimized: {stats.final_size} lines")
             print(f"  Reduction: {stats.reduction_rate*100:.1f}%")
@@ -797,7 +797,6 @@ class HybridDeltaDebugger:
     def _trace_source(self, source_code: str, cwd: Optional[Path]) -> Optional[ExecutionTrace]:
         """Trace execution of source code directly."""
         import tempfile
-        import os
 
         # Write to temp file
         with tempfile.NamedTemporaryFile(mode='w', suffix='.py',

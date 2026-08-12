@@ -16,16 +16,12 @@ of those files.
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / 'automre' / 'src'))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from parser import PythonParser
-from tracer import ExecutionTracer
-from validator import Validator
 from reducer import HybridDeltaDebugger
 from baselines import VanillaDDMin, SyntaxAwareReducer, RandomReducer
 from metrics import ReductionMetrics, BenchmarkResult, MetricsCollector

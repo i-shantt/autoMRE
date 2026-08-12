@@ -19,7 +19,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional
 
 
 def oracle_env(base: Optional[Dict[str, str]] = None) -> Dict[str, str]:
@@ -505,7 +505,7 @@ if __name__ == "__main__":
     validator.set_original_behavior(result.stdout + result.stderr,
                                     result.returncode)
 
-    print(f"Original behavior captured:")
+    print("Original behavior captured:")
     print(f"  Error type: {validator.original_behavior.error_type}")
     print(f"  Error message: {validator.original_behavior.error_message}")
     print(f"  Return code: {validator.original_behavior.return_code}")

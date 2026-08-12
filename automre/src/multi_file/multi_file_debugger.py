@@ -33,8 +33,6 @@ from reducer import HybridDeltaDebugger, _is_parseable
 from .coverage_pruner import CoveragePruner, remap_executed_lines
 from .dependency_analyzer import (
     DependencyAnalyzer,
-    FileClass,
-    ProjectAnalysis,
     topological_order,
 )
 from .import_inliner import ImportInliner

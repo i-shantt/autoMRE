@@ -17,7 +17,6 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-from typing import List
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware

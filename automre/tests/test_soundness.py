@@ -92,7 +92,6 @@ def test_error_type_strategy_is_documented_as_permissive():
     intentional and available, but it must not be the default, which is
     what this asserts.
     """
-    import argparse
     import cli
 
     parser_src = Path(cli.__file__).read_text()

@@ -12,13 +12,12 @@ Based on:
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set
 
 import coverage
 
@@ -234,10 +233,10 @@ if __name__ == "__main__":
     tracer = ExecutionTracer()
     trace = tracer.trace_python_file(file_path, args)
 
-    print(f"Execution Trace:")
+    print("Execution Trace:")
     print(f"  Success: {trace.success}")
     print(f"  Return code: {trace.return_code}")
     print(f"  Total executed lines: {trace.total_executed_lines}")
-    print(f"\nExecuted lines by file:")
+    print("\nExecuted lines by file:")
     for file_path, lines in trace.executed_lines.items():
         print(f"  {file_path}: {len(lines)} lines")

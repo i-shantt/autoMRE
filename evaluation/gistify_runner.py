@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -435,7 +434,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
             python = spec.python
             test_command = _resolve_test_command(task.test_command, python)
         else:
-            print(f"  → installing work copy...", flush=True)
+            print("  → installing work copy...", flush=True)
             if not _install_work_copy(work_dir, python):
                 return GistifyResult(
                     task_id=task.task_id, execution_fidelity=0,
@@ -453,7 +452,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
         # one finds a new way for a task to look fine and be worthless.
         # require_pass because a Gistify task is a *passing* test — the
         # general case is the opposite and the gate defaults to it.
-        print(f"  → checking the task is worth reducing...", flush=True)
+        print("  → checking the task is worth reducing...", flush=True)
         verdict = gate_check(work_dir, test_command, timeout=timeout,
                              require_pass=task.requires_pass)
         baseline_out, baseline_rc = verdict.baseline_output, verdict.baseline_rc
@@ -482,7 +481,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
             python=python,
         )
 
-        print(f"  → reducing...", flush=True)
+        print("  → reducing...", flush=True)
         start = time.time()
         try:
             summary = debugger.reduce_project(work_dir, test_command)
@@ -497,7 +496,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
         elapsed = time.time() - start
 
         final_files, final_lines = _count_files_and_lines(work_dir)
-        print(f"  → checking execution fidelity...", flush=True)
+        print("  → checking execution fidelity...", flush=True)
         fidelity = _check_execution_fidelity(
             work_dir, test_command,
             baseline_out, baseline_rc, timeout=timeout)
@@ -674,7 +673,7 @@ def main() -> int:
     print(f"Single-file output: "
           f"{summary['single_file_rate']*100:.1f}%")
     print(f"Avg time / task:    {summary['avg_time_seconds']:.1f}s")
-    print(f"Gistify best (paper): 58.7% execution fidelity")
+    print("Gistify best (paper): 58.7% execution fidelity")
     return 0
 
 
