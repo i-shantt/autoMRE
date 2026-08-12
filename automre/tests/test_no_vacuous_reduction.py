@@ -234,3 +234,36 @@ def test_an_ordinary_module_named_tests_is_not_mistaken_for_a_runner():
     # The narrow set still covers the two that motivated it.
     assert MultiFileDebugger._is_test_runner(["python3", "tests/runtests.py"])
     assert MultiFileDebugger._is_test_runner(["python3", "bin/test", "x"])
+
+
+def test_a_label_is_found_when_the_tests_are_somewhere_unusual(tmp_path):
+    """Two hardcoded guesses left an unconventional layout unprotected.
+
+    Checking only `<project>/` and `<project>/tests/` covers the common
+    cases and silently misses the rest, which moves the hole rather than
+    closing it. The glob fallback is anchored on the full stem, so
+    "apps/tests.py" cannot be satisfied by an unrelated "tests.py".
+    """
+    proj = (tmp_path / "proj").resolve()
+    (proj / "src" / "tests").mkdir(parents=True)
+    (proj / "src" / "tests" / "test_thing.py").write_text(
+        "def test_x():\n    pass\n")
+
+    found = MultiFileDebugger._files_named_by_label(
+        proj, ["test_thing.TestC.test_x"])
+
+    assert {p.name for p in found} == {"test_thing.py"}
+
+
+def test_a_label_prefers_a_longer_prefix_over_a_bare_name(tmp_path):
+    """`apps.tests....` means apps/tests.py, not some other tests.py."""
+    proj = (tmp_path / "proj").resolve()
+    (proj / "tests" / "apps").mkdir(parents=True)
+    (proj / "tests" / "apps" / "tests.py").write_text("x = 1\n")
+    (proj / "unrelated").mkdir()
+    (proj / "unrelated" / "tests.py").write_text("y = 2\n")
+
+    found = MultiFileDebugger._files_named_by_label(
+        proj, ["apps.tests.AppsTests.test_y"])
+
+    assert {str(p.relative_to(proj)) for p in found} == {"tests/apps/tests.py"}

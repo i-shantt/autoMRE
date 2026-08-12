@@ -744,8 +744,8 @@ class MultiFileDebugger:
         protected.update(self._files_named_by_label(project_dir, test_command))
         return protected
 
-    @staticmethod
-    def _files_named_by_label(project_dir: Path,
+    @classmethod
+    def _files_named_by_label(cls, project_dir: Path,
                               test_command: List[str]) -> Set[Path]:
         """Test files named as a dotted label rather than a path.
 
@@ -771,12 +771,7 @@ class MultiFileDebugger:
             # stopping at two components would never look there.
             for cut in range(len(parts), 0, -1):
                 stem = Path(*parts[:cut]).with_suffix(".py")
-                for base in (project_dir, project_dir / "tests"):
-                    candidate = (base / stem)
-                    try:
-                        candidate = candidate.resolve()
-                    except OSError:
-                        continue
+                for candidate in cls._label_candidates(project_dir, stem):
                     if (candidate.is_file()
                             and candidate.is_relative_to(project_dir)):
                         found.add(candidate)
@@ -784,6 +779,29 @@ class MultiFileDebugger:
                 if found:
                     break
         return found
+
+    @staticmethod
+    def _label_candidates(project_dir: Path, stem: Path):
+        """Where a dotted label's file might live, cheapest guess first.
+
+        The two direct guesses cover the common layouts and cost nothing.
+        The glob is the fallback for a project whose tests are somewhere
+        else entirely — without it a repository with `src/tests/` gets no
+        protection at all, which is the hole this whole function exists
+        to close, moved rather than fixed.
+        """
+        for base in (project_dir, project_dir / "tests"):
+            try:
+                yield (base / stem).resolve()
+            except OSError:
+                continue
+        # Anchored on the full stem, so "apps/tests.py" cannot be matched
+        # by an unrelated "tests.py" somewhere in the tree.
+        for match in sorted(project_dir.rglob(str(stem))):
+            try:
+                yield match.resolve()
+            except OSError:
+                continue
 
     def _sweep_deletable_files(self, files: List[Path], validator,
                                project_dir: Path) -> Tuple[List[Path], int]:
