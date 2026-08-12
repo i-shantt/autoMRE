@@ -626,12 +626,33 @@ class MultiFileDebugger:
 
     # ---------------------------------------------------------- utils
 
-    @staticmethod
-    def _is_test_runner(test_command: List[str]) -> bool:
+    # Scripts that are a project's own test runner rather than the code
+    # under test. Django's suite runs only through tests/runtests.py, and
+    # sympy's through bin/test; neither is pytest, and without these
+    # names the command reads as "python some_script.py", where the
+    # script is the subject and reducing it is the whole point.
+    #
+    # The distinction is not cosmetic. `_protected_files` returns nothing
+    # for a command that is not a test runner, so a Django reduction
+    # protected no oracle at all and the refusal guard never fired. For a
+    # failing test that is survivable — the failure output pins the test
+    # body — but a *passing* test run this way has the degenerate
+    # solution wide open: empty the test, the runner still prints OK, and
+    # the library can go.
+    _RUNNER_SCRIPTS = {"runtests.py", "run_tests.py", "runtest.py",
+                       "test.py", "tests.py", "test", "test_all.py"}
+
+    @classmethod
+    def _is_test_runner(cls, test_command: List[str]) -> bool:
         """Does this command hand the verdict to a test framework?"""
         runners = {"pytest", "py.test", "unittest", "nose2"}
         for arg in test_command:
-            if Path(arg).name in runners or arg in runners:
+            name = Path(arg).name
+            if name in runners or arg in runners:
+                return True
+            # Only as a path: a bare argument "test" is far more likely
+            # to be a label or a directory than an invocation.
+            if name in cls._RUNNER_SCRIPTS and ("/" in arg or "\\" in arg):
                 return True
         return False
 
@@ -717,7 +738,49 @@ class MultiFileDebugger:
                         break
                     directory = directory.parent
 
+        protected.update(self._files_named_by_label(project_dir, test_command))
         return protected
+
+    @staticmethod
+    def _files_named_by_label(project_dir: Path,
+                              test_command: List[str]) -> Set[Path]:
+        """Test files named as a dotted label rather than a path.
+
+        A project with its own runner is driven by module paths:
+        `tests/runtests.py apps.tests.AppsTests.test_clear_cache`. Only
+        `runtests.py` matches as a path, so the file holding the test —
+        the actual oracle — was left reducible while the harness around
+        it was protected. This walks the dotted prefix down to whichever
+        file exists.
+
+        Labels also carry class and method names, so the search stops at
+        the first prefix that is a file and ignores the rest.
+        """
+        found: Set[Path] = set()
+        for arg in test_command:
+            if arg.startswith("-") or "/" in arg or "\\" in arg:
+                continue
+            parts = arg.split(".")
+            if len(parts) < 2:
+                continue
+            # Longest prefix first, down to the first component alone:
+            # "test_mylib.TestX.test_add" lives in test_mylib.py, and
+            # stopping at two components would never look there.
+            for cut in range(len(parts), 0, -1):
+                stem = Path(*parts[:cut]).with_suffix(".py")
+                for base in (project_dir, project_dir / "tests"):
+                    candidate = (base / stem)
+                    try:
+                        candidate = candidate.resolve()
+                    except OSError:
+                        continue
+                    if (candidate.is_file()
+                            and candidate.is_relative_to(project_dir)):
+                        found.add(candidate)
+                        break
+                if found:
+                    break
+        return found
 
     def _sweep_deletable_files(self, files: List[Path], validator,
                                project_dir: Path) -> Tuple[List[Path], int]:

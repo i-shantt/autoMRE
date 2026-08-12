@@ -167,3 +167,55 @@ def test_a_test_run_that_protects_nothing_is_refused(tmp_path):
     with pytest.raises(ValueError, match="nothing to protect"):
         debugger.reduce_project(
             proj, [sys.executable, "-m", "pytest", "-k", "add", "-q"])
+
+
+def test_a_projects_own_runner_counts_as_a_test_runner(tmp_path):
+    """Django's suite runs only through tests/runtests.py.
+
+    Without this the command reads as `python some_script.py`, where the
+    script is the subject and reducing it is the point. `_protected_files`
+    then returns nothing, the refusal guard never fires, and a *passing*
+    test run this way has the degenerate solution wide open: empty the
+    test, the runner still prints OK, and the library can go.
+    """
+    proj = _suite(tmp_path)
+    (proj / "tests" / "runtests.py").write_text("raise SystemExit(0)\n")
+    debugger = MultiFileDebugger(verbose=False)
+
+    assert debugger._is_test_runner(
+        [sys.executable, "tests/runtests.py", "mylib.SomeTests.test_x"])
+    # A bare word is a label or a directory far more often than a script.
+    assert not debugger._is_test_runner([sys.executable, "test", "-q"])
+
+
+def test_a_dotted_label_protects_the_file_holding_the_test(tmp_path):
+    """`runtests.py apps.tests.AppsTests.test_x` names no path.
+
+    Only the runner matches as a path, so on Django the harness was
+    protected and the file holding the test — the actual oracle — was
+    left reducible. Measured on django__django-17029: 0 lines protected
+    before, 1,332 after.
+    """
+    proj = _suite(tmp_path)
+    (proj / "tests" / "runtests.py").write_text("raise SystemExit(0)\n")
+    debugger = MultiFileDebugger(verbose=False)
+
+    protected = debugger._protected_files(
+        proj.resolve(),
+        [sys.executable, "tests/runtests.py", "test_mylib.TestX.test_add"])
+
+    names = {p.name for p in protected}
+    assert "test_mylib.py" in names, (
+        "the dotted label's file was not protected, so the reducer may "
+        "cut the test that defines the behavior being preserved")
+
+
+def test_a_label_naming_nothing_in_the_project_protects_nothing_extra(tmp_path):
+    """Guessing at a label that resolves nowhere would be worse."""
+    proj = _suite(tmp_path)
+    debugger = MultiFileDebugger(verbose=False)
+
+    found = debugger._files_named_by_label(
+        proj.resolve(), ["some.module.that.is.not.here"])
+
+    assert found == set()
