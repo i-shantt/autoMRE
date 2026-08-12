@@ -9,7 +9,7 @@
       "files": 899,
       "lines": 374114,
       "gate_runs": 0,
-      "seconds": 4.638189077377319
+      "seconds": 4.974923133850098
     },
     {
       "task_id": "matplotlib__matplotlib-26466",
@@ -20,7 +20,7 @@
       "files": 895,
       "lines": 245187,
       "gate_runs": 0,
-      "seconds": 19.769659996032715
+      "seconds": 21.66870617866516
     },
     {
       "task_id": "pallets__flask-5014",
@@ -31,7 +31,7 @@
       "files": 80,
       "lines": 17483,
       "gate_runs": 1,
-      "seconds": 9.836688756942749
+      "seconds": 13.852333068847656
     },
     {
       "task_id": "psf__requests-5414",
@@ -42,7 +42,7 @@
       "files": 35,
       "lines": 10139,
       "gate_runs": 3,
-      "seconds": 4.95402979850769
+      "seconds": 7.744369029998779
     },
     {
       "task_id": "pydata__xarray-7233",
@@ -53,18 +53,18 @@
       "files": 173,
       "lines": 135891,
       "gate_runs": 1,
-      "seconds": 12.922363758087158
+      "seconds": 14.537482023239136
     },
     {
       "task_id": "pytest-dev__pytest-10356",
       "repo": "https://github.com/pytest-dev/pytest",
       "commit": "3c1534944cbd34e8a41bc9e76818018fadefc9a1",
       "accepted": false,
-      "reason": "pytest usage error (rc=4): ImportError while loading conftest '/private/tmp/claude-501/-Users-ishant-autoMRE/ed7e8b5b-44c2-4dc1-845e-41b09e07b433/scratchpad/pilot_ws/pytest-dev__pytest-10356/testing/conftest.py'.",
+      "reason": "pytest usage error (rc=4): ImportError while loading conftest '/private/tmp/claude-501/-Users-ishant-autoMRE/ed7e8b5b-44c2-4dc1-845e-41b09e07b433/scratchpad/pilot_ws5/pytest-dev__pytest-10356/testing/conftest.py'.",
       "files": 244,
       "lines": 80833,
       "gate_runs": 1,
-      "seconds": 3.7288451194763184
+      "seconds": 4.190046072006226
     },
     {
       "task_id": "scikit-learn__scikit-learn-26323",
@@ -75,18 +75,18 @@
       "files": 920,
       "lines": 370094,
       "gate_runs": 0,
-      "seconds": 18.313732862472534
+      "seconds": 18.161630153656006
     },
     {
       "task_id": "sphinx-doc__sphinx-10673",
       "repo": "https://github.com/sphinx-doc/sphinx",
       "commit": "f35d2a6cc726f97d0e859ca7a0e1729f7da8a6c8",
       "accepted": false,
-      "reason": "pytest usage error (rc=4): ERROR: found no collectors for /private/tmp/claude-501/-Users-ishant-autoMRE/ed7e8b5b-44c2-4dc1-845e-41b09e07b433/scratchpad/pilot_ws/sphinx-doc__sphinx-10673/tests/test_environment_toctree.py::test_toctree_index",
+      "reason": "pytest usage error (rc=4): ERROR: found no collectors for /private/tmp/claude-501/-Users-ishant-autoMRE/ed7e8b5b-44c2-4dc1-845e-41b09e07b433/scratchpad/pilot_ws5/sphinx-doc__sphinx-10673/tests/test_environment_toctree.py::test_toctree_index",
       "files": 556,
       "lines": 104569,
       "gate_runs": 1,
-      "seconds": 5.874089002609253
+      "seconds": 6.967896938323975
     }
   ]
 }
