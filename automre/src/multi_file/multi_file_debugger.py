@@ -247,6 +247,14 @@ class MultiFileDebugger:
             validator.set_original_from(
                 trace.output, 0 if trace.success else trace.return_code)
 
+        if analysis.undecodable_files:
+            self._log(
+                f"  leaving {len(analysis.undecodable_files)} file(s) alone: "
+                "not valid UTF-8, so they cannot be cut safely — "
+                + ", ".join(sorted(
+                    str(p.relative_to(project_dir))
+                    for p in analysis.undecodable_files))[:200])
+
         if protected:
             self._log(f"  protecting {len(protected)} oracle file(s): "
                       + ", ".join(sorted(
@@ -762,7 +770,12 @@ class MultiFileDebugger:
 
     def _line_count(self, path: Path) -> int:
         try:
-            return len(path.read_text().splitlines())
+            # errors="replace" only ever substitutes non-ASCII bytes, and
+            # a line count depends on newlines, so the count stays exact.
+            # Phase 1 already excludes files that do not decode; this is
+            # here because counting lines is the first thing done to a
+            # tree and should not be the thing that crashes on it.
+            return len(path.read_text(errors="replace").splitlines())
         except OSError:
             return 0
 
