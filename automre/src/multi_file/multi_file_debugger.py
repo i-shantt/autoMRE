@@ -639,8 +639,13 @@ class MultiFileDebugger:
     # body — but a *passing* test run this way has the degenerate
     # solution wide open: empty the test, the runner still prints OK, and
     # the library can go.
+    # Deliberately narrow. "test.py" and "tests.py" are ordinary module
+    # names far more often than they are entry points, and a false
+    # positive is not harmless: the named script gets protected as the
+    # oracle, so if it was in fact the subject the reduction silently
+    # does nothing at all.
     _RUNNER_SCRIPTS = {"runtests.py", "run_tests.py", "runtest.py",
-                       "test.py", "tests.py", "test", "test_all.py"}
+                       "test_all.py", "test"}
 
     @classmethod
     def _is_test_runner(cls, test_command: List[str]) -> bool:

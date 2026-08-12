@@ -219,3 +219,18 @@ def test_a_label_naming_nothing_in_the_project_protects_nothing_extra(tmp_path):
         proj.resolve(), ["some.module.that.is.not.here"])
 
     assert found == set()
+
+
+def test_an_ordinary_module_named_tests_is_not_mistaken_for_a_runner():
+    """A false positive here silently disables the reduction.
+
+    "test.py" and "tests.py" are ordinary module names far more often
+    than entry points. Treating one as a runner protects it as the
+    oracle, so a project whose subject *is* that script reduces to
+    nothing at all while reporting success.
+    """
+    assert not MultiFileDebugger._is_test_runner(["python3", "tests/test.py"])
+    assert not MultiFileDebugger._is_test_runner(["python3", "apps/tests.py"])
+    # The narrow set still covers the two that motivated it.
+    assert MultiFileDebugger._is_test_runner(["python3", "tests/runtests.py"])
+    assert MultiFileDebugger._is_test_runner(["python3", "bin/test", "x"])
