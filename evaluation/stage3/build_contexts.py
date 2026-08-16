@@ -162,6 +162,43 @@ def gold_files(patch: str) -> List[str]:
                                re.MULTILINE)})
 
 
+def failing_test_name(test_id: str) -> str:
+    """The function name out of any of the three identifier shapes.
+
+    pytest node ids, django's "test_x (module.Class.test_x)" labels and
+    sympy's bare names all end in the function name; only the punctuation
+    around it differs.
+    """
+    head = test_id.split(" ")[0].strip("()")
+    return head.split("::")[-1].split(".")[-1]
+
+
+def extract_test_source(files: Dict[str, str], test_ids: List[str],
+                        limit: int = 400) -> str:
+    """The source of the failing tests, and only those.
+
+    Whole test files are not usable here: seaborn's is two thousand
+    lines, which would be an eighth of the budget spent on tests nobody
+    asked about. The named function is the reproduction.
+    """
+    import ast
+    wanted = {failing_test_name(t) for t in test_ids}
+    chunks: List[str] = []
+    for name, text in files.items():
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name in wanted):
+                src = ast.get_source_segment(text, node) or ""
+                lines = src.splitlines()[:limit]
+                chunks.append(f"### {name}\n```python\n"
+                              + "\n".join(lines) + "\n```\n")
+    return "\n".join(chunks)
+
+
 # ------------------------------------------------------------- packing
 
 @dataclass
@@ -217,9 +254,10 @@ def pack(ranked: List[str], files: Dict[str, str], budget: int,
 _INSTRUCTION = """\
 You are fixing a bug in a Python repository.
 
-Below is an issue report, then the parts of the repository you have been
-given. The repository is larger than what is shown; assume anything not
-shown is unchanged and correct.
+Below is an issue report, the test that currently fails because of it,
+then the parts of the repository you have been given. The repository is
+larger than what is shown; assume anything not shown is unchanged and
+correct.
 
 Work out which shown code is responsible for the issue and repair it.
 
@@ -241,9 +279,10 @@ Rules:
 """
 
 
-def build_prompt(problem: str, context: str) -> str:
+def build_prompt(problem: str, failing_test: str, context: str) -> str:
     return (f"{_INSTRUCTION}\n"
             f"## Issue\n{problem.strip()}\n\n"
+            f"## Failing test\n{failing_test}\n"
             f"## Repository code\n{context}")
 
 
@@ -260,6 +299,9 @@ def build(instance: dict, task: GistifyTask, reduced_root: Path,
     task_id = instance["instance_id"]
     problem = instance["problem_statement"]
     gold = gold_files(instance["patch"])
+    f2p_ids = (json.loads(instance["FAIL_TO_PASS"])
+               if isinstance(instance["FAIL_TO_PASS"], str)
+               else instance["FAIL_TO_PASS"])
 
     print(f"[{task_id}] checking out the original tree...", flush=True)
     original = _ensure_repo(task, cache_dir=cache_dir)
@@ -271,6 +313,24 @@ def build(instance: dict, task: GistifyTask, reduced_root: Path,
             f"{task_id}: no reduced tree at {reduced_root / task_id}. "
             f"Run gistify_runner.py --save-reduced first.")
     reduced = collect_python(reduced_tree)
+
+    # The confound this removes would have decided the whole experiment.
+    # The reduced tree *keeps* the failing test — the reducer protects
+    # it, it is the question being asked — so the reduced arm would
+    # arrive holding the reproduction while BM25 over the full tree,
+    # ranking against an issue report, usually would not. The reduced arm
+    # would then win for a reason that has nothing to do with reduction.
+    #
+    # So the test files leave both universes, and the failing test's
+    # source is prepended to every arm instead. Every arm gets the
+    # reproduction, which is the premise of this whole project anyway:
+    # you have a test that fails, and you want the bug fixed.
+    test_files = gold_files(instance["test_patch"])
+    failing_test = extract_test_source(
+        {n: t for n, t in full.items() if n in test_files}, f2p_ids)
+    for name in test_files:
+        full.pop(name, None)
+        reduced.pop(name, None)
 
     rows = []
     for arm, files in (("full_bm25", full), ("reduced_bm25", reduced)):
@@ -288,12 +348,14 @@ def build(instance: dict, task: GistifyTask, reduced_root: Path,
     out = []
     for arm, files, ctx in rows:
         hit = [g for g in gold if g in ctx.included]
+        prompt = build_prompt(problem, failing_test, ctx.text)
         out.append({
             "instance_id": task_id,
             "arm": arm,
-            "prompt": build_prompt(problem, ctx.text),
+            "prompt": prompt,
             "context_tokens": ctx.tokens,
-            "prompt_tokens": count_tokens(build_prompt(problem, ctx.text)),
+            "failing_test_tokens": count_tokens(failing_test),
+            "prompt_tokens": count_tokens(prompt),
             "included_files": ctx.included,
             "files_considered": ctx.considered,
             "tree_lines": sum(len(t.splitlines()) for t in files.values()),

@@ -16,6 +16,7 @@ _ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_ROOT / "evaluation" / "stage3"))
 
 from build_contexts import (BM25, code_tokens, collect_python,  # noqa: E402
+                            extract_test_source, failing_test_name,
                             gold_files, pack, render, token_costs)
 
 
@@ -111,6 +112,42 @@ def test_undecodable_files_are_skipped_not_fatal(tmp_path):
     files = collect_python(tmp_path)
 
     assert set(files) == {"ok.py"}
+
+
+# ----------------------------------------------- the failing test itself
+
+def test_the_three_identifier_shapes_all_yield_the_function():
+    """pytest node ids, django labels and sympy's bare names."""
+    assert failing_test_name(
+        "tests/config/test_config.py::test_csv_regex_error"
+    ) == "test_csv_regex_error"
+    assert failing_test_name(
+        "tests/_core/test_plot.py::TestLegend::test_legend_has_no_offset"
+    ) == "test_legend_has_no_offset"
+    assert failing_test_name(
+        "test_clear_cache (apps.tests.AppsTests.test_clear_cache)"
+    ) == "test_clear_cache"
+    assert failing_test_name("test_issue_24543") == "test_issue_24543"
+
+
+def test_only_the_named_test_is_extracted():
+    """Not the whole file: seaborn's test file is 2,000 lines.
+
+    An eighth of the budget spent on tests nobody asked about is an
+    eighth the arm does not spend on the code holding the bug.
+    """
+    files = {"tests/t.py": (
+        "def test_other():\n"
+        "    assert something_else()\n"
+        "\n"
+        "class TestLegend:\n"
+        "    def test_wanted(self):\n"
+        "        assert plot().legend is None\n")}
+
+    src = extract_test_source(files, ["tests/t.py::TestLegend::test_wanted"])
+
+    assert "test_wanted" in src and "plot().legend" in src
+    assert "something_else" not in src
 
 
 def test_gold_files_reads_the_diff_headers():
