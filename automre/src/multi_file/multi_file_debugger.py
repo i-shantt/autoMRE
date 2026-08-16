@@ -33,8 +33,6 @@ from reducer import HybridDeltaDebugger, _is_parseable
 from .coverage_pruner import CoveragePruner, remap_executed_lines
 from .dependency_analyzer import (
     DependencyAnalyzer,
-    FileClass,
-    ProjectAnalysis,
     topological_order,
 )
 from .import_inliner import ImportInliner
@@ -68,6 +66,15 @@ class MultiFileReductionResult:
     # 1016 of the 1198 surviving lines, so a total-line figure of 89.3%
     # conceals a 98.2% reduction of the code actually under reduction.
     protected_line_count: int = 0
+    # .py files left untouched because they are not valid UTF-8, so the
+    # reducer cannot cut them without risking their bytes. Reported for
+    # the same reason the two counts above are: a run that quietly
+    # excluded part of the tree looks exactly like a run that considered
+    # all of it and found nothing to remove.
+    undecodable_files: List[Path] = field(default_factory=list)
+    # .py files reached through a symlink that leaves the project, and so
+    # never candidates: the reducer's remit is the directory it was given.
+    outside_project_files: List[Path] = field(default_factory=list)
     # Oracle bookkeeping — zero when it isn't in use.
     oracle_enabled: bool = False
     oracle_skipped_attempts: int = 0   # Phase 4b removals never tried
@@ -246,6 +253,20 @@ class MultiFileDebugger:
                                            match_strategy=self.match_strategy)
             validator.set_original_from(
                 trace.output, 0 if trace.success else trace.return_code)
+
+        if analysis.outside_project_files:
+            self._log(
+                f"  refusing {len(analysis.outside_project_files)} file(s) "
+                "reached by a symlink out of the project; they are not "
+                "this reduction's to change")
+
+        if analysis.undecodable_files:
+            self._log(
+                f"  leaving {len(analysis.undecodable_files)} file(s) alone: "
+                "not valid UTF-8, so they cannot be cut safely — "
+                + ", ".join(sorted(
+                    str(p.relative_to(project_dir))
+                    for p in analysis.undecodable_files))[:200])
 
         if protected:
             self._log(f"  protecting {len(protected)} oracle file(s): "
@@ -594,6 +615,8 @@ class MultiFileDebugger:
             time_seconds=time.time() - start,
             protected_line_count=sum(self._line_count(f) for f in protected
                                      if f.exists()),
+            undecodable_files=list(analysis.undecodable_files),
+            outside_project_files=list(analysis.outside_project_files),
             oracle_enabled=self.oracle is not None,
             oracle_skipped_attempts=oracle_skipped_attempts,
             oracle_held_back_files=oracle_held_back_files,
@@ -601,12 +624,38 @@ class MultiFileDebugger:
 
     # ---------------------------------------------------------- utils
 
-    @staticmethod
-    def _is_test_runner(test_command: List[str]) -> bool:
+    # Scripts that are a project's own test runner rather than the code
+    # under test. Django's suite runs only through tests/runtests.py, and
+    # sympy's through bin/test; neither is pytest, and without these
+    # names the command reads as "python some_script.py", where the
+    # script is the subject and reducing it is the whole point.
+    #
+    # The distinction is not cosmetic. `_protected_files` returns nothing
+    # for a command that is not a test runner, so a Django reduction
+    # protected no oracle at all and the refusal guard never fired. For a
+    # failing test that is survivable — the failure output pins the test
+    # body — but a *passing* test run this way has the degenerate
+    # solution wide open: empty the test, the runner still prints OK, and
+    # the library can go.
+    # Deliberately narrow. "test.py" and "tests.py" are ordinary module
+    # names far more often than they are entry points, and a false
+    # positive is not harmless: the named script gets protected as the
+    # oracle, so if it was in fact the subject the reduction silently
+    # does nothing at all.
+    _RUNNER_SCRIPTS = {"runtests.py", "run_tests.py", "runtest.py",
+                       "test_all.py", "test"}
+
+    @classmethod
+    def _is_test_runner(cls, test_command: List[str]) -> bool:
         """Does this command hand the verdict to a test framework?"""
         runners = {"pytest", "py.test", "unittest", "nose2"}
         for arg in test_command:
-            if Path(arg).name in runners or arg in runners:
+            name = Path(arg).name
+            if name in runners or arg in runners:
+                return True
+            # Only as a path: a bare argument "test" is far more likely
+            # to be a label or a directory than an invocation.
+            if name in cls._RUNNER_SCRIPTS and ("/" in arg or "\\" in arg):
                 return True
         return False
 
@@ -692,7 +741,67 @@ class MultiFileDebugger:
                         break
                     directory = directory.parent
 
+        protected.update(self._files_named_by_label(project_dir, test_command))
         return protected
+
+    @classmethod
+    def _files_named_by_label(cls, project_dir: Path,
+                              test_command: List[str]) -> Set[Path]:
+        """Test files named as a dotted label rather than a path.
+
+        A project with its own runner is driven by module paths:
+        `tests/runtests.py apps.tests.AppsTests.test_clear_cache`. Only
+        `runtests.py` matches as a path, so the file holding the test —
+        the actual oracle — was left reducible while the harness around
+        it was protected. This walks the dotted prefix down to whichever
+        file exists.
+
+        Labels also carry class and method names, so the search stops at
+        the first prefix that is a file and ignores the rest.
+        """
+        found: Set[Path] = set()
+        for arg in test_command:
+            if arg.startswith("-") or "/" in arg or "\\" in arg:
+                continue
+            parts = arg.split(".")
+            if len(parts) < 2:
+                continue
+            # Longest prefix first, down to the first component alone:
+            # "test_mylib.TestX.test_add" lives in test_mylib.py, and
+            # stopping at two components would never look there.
+            for cut in range(len(parts), 0, -1):
+                stem = Path(*parts[:cut]).with_suffix(".py")
+                for candidate in cls._label_candidates(project_dir, stem):
+                    if (candidate.is_file()
+                            and candidate.is_relative_to(project_dir)):
+                        found.add(candidate)
+                        break
+                if found:
+                    break
+        return found
+
+    @staticmethod
+    def _label_candidates(project_dir: Path, stem: Path):
+        """Where a dotted label's file might live, cheapest guess first.
+
+        The two direct guesses cover the common layouts and cost nothing.
+        The glob is the fallback for a project whose tests are somewhere
+        else entirely — without it a repository with `src/tests/` gets no
+        protection at all, which is the hole this whole function exists
+        to close, moved rather than fixed.
+        """
+        for base in (project_dir, project_dir / "tests"):
+            try:
+                yield (base / stem).resolve()
+            except OSError:
+                continue
+        # Anchored on the full stem, so "apps/tests.py" cannot be matched
+        # by an unrelated "tests.py" somewhere in the tree.
+        for match in sorted(project_dir.rglob(str(stem))):
+            try:
+                yield match.resolve()
+            except OSError:
+                continue
 
     def _sweep_deletable_files(self, files: List[Path], validator,
                                project_dir: Path) -> Tuple[List[Path], int]:
@@ -762,7 +871,12 @@ class MultiFileDebugger:
 
     def _line_count(self, path: Path) -> int:
         try:
-            return len(path.read_text().splitlines())
+            # errors="replace" only ever substitutes non-ASCII bytes, and
+            # a line count depends on newlines, so the count stays exact.
+            # Phase 1 already excludes files that do not decode; this is
+            # here because counting lines is the first thing done to a
+            # tree and should not be the thing that crashes on it.
+            return len(path.read_text(errors="replace").splitlines())
         except OSError:
             return 0
 

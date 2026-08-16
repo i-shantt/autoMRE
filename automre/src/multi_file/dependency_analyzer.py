@@ -45,6 +45,16 @@ class ProjectAnalysis:
     reverse_graph: Dict[Path, Set[Path]]     # file -> files importing it
     classification: Dict[Path, FileClass]
     original_trace: ExecutionTrace
+    # .py files the reducer cannot read as UTF-8 and therefore refuses to
+    # touch. They are left in the output untouched. Reported rather than
+    # dropped quietly, because "the reducer silently ignored part of your
+    # project" is exactly the kind of thing this project keeps finding it
+    # had been doing.
+    undecodable_files: List[Path] = field(default_factory=list)
+    # .py files reached through a symlink that leaves the project. They
+    # are not reduced: the reducer deletes and rewrites what it is given,
+    # and what it was given is one directory.
+    outside_project_files: List[Path] = field(default_factory=list)
 
     # These are returned sorted, not as sets, and that is load-bearing.
     # Path hashes off its string, so a Set[Path] iterates in an order that
@@ -94,7 +104,7 @@ class DependencyAnalyzer:
         """Run the full Phase-1 analysis and return a ProjectAnalysis."""
         project_dir = Path(project_dir).resolve()
 
-        all_files = self._discover(project_dir)
+        all_files, undecodable, outside = self._discover(project_dir)
         trace = self._trace(project_dir, test_command)
         executed_lines = self._localize_trace(trace, project_dir, all_files)
         dep_graph = self._build_dep_graph(project_dir, all_files)
@@ -109,17 +119,60 @@ class DependencyAnalyzer:
             reverse_graph=reverse_graph,
             classification=classification,
             original_trace=trace,
+            undecodable_files=undecodable,
+            outside_project_files=outside,
         )
 
     # ---------------------------------------------------- 1a) discovery
 
-    def _discover(self, project_dir: Path) -> List[Path]:
+    def _discover(self, project_dir: Path) -> tuple:
+        """Every .py file the reducer is able to work on, and the rest.
+
+        A source file that is not valid UTF-8 is left alone rather than
+        reduced. Python still allows a PEP 263 encoding declaration, and
+        real projects still use it: pylint carries
+        `tests/functional/i/implicit/implicit_str_concat_latin1.py`, one
+        latin-1 file in 2,189, and it crashed the reducer on the first
+        thing it did — counting lines — before a single query was spent.
+
+        Skipping is the conservative choice rather than the convenient
+        one. Reducing such a file means reading it, cutting spans out of
+        it and writing it back, and every one of those steps would have
+        to preserve bytes the reducer cannot decode. Leaving one file
+        untouched costs a little reduction; getting the round-trip wrong
+        would corrupt a file while reporting success.
+        """
         found: List[Path] = []
+        undecodable: List[Path] = []
+        outside: List[Path] = []
         for path in project_dir.rglob("*.py"):
             if any(part in self.exclude_dirs for part in path.parts):
                 continue
-            found.append(path.resolve())
-        return sorted(found)
+            resolved = path.resolve()
+
+            # resolve() follows symlinks, so a link pointing out of the
+            # tree lands on a path the caller never offered. Reducing it
+            # would mean deleting and rewriting somebody else's file: the
+            # reducer was given one directory and its remit ends there.
+            #
+            # Until now this was caught only by accident, several phases
+            # later, when relative_to() raised ValueError and killed the
+            # run. Nothing outside was damaged, but that was luck rather
+            # than a boundary, and luck is the wrong thing to rely on for
+            # a tool that deletes files.
+            if not resolved.is_relative_to(project_dir):
+                outside.append(resolved)
+                continue
+
+            try:
+                resolved.read_text()
+            except UnicodeDecodeError:
+                undecodable.append(resolved)
+                continue
+            except OSError:
+                continue
+            found.append(resolved)
+        return sorted(found), sorted(undecodable), sorted(set(outside))
 
     # ---------------------------------------------------- 1b) tracing
 

@@ -12,11 +12,9 @@ Based on:
 
 from __future__ import annotations
 
-import ast
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from tree_sitter import Language, Node, Parser, Tree
 import tree_sitter_python as tspython

@@ -2,21 +2,26 @@
 autoMRE: Automated Bug Reproduction Minimization
 Simple Evaluation Runner
 
-Runs evaluation on example bugs for demonstration.
+Runs the single-file examples through one algorithm, or all of them with
+--compare-all, which is the only place ddmin, random and syntax-guided
+reduction are compared against HDD-E.
+
+Nothing in the repository calls this, and the results it last produced —
+`results_ddmin.json`, `results_random.json`, `results_syntax.json` — are
+listed as void in README.md: they were measured through a single-file
+validator that never ran the candidate. That bug is fixed, so the
+comparison is worth re-running, but until it is, do not read numbers out
+of those files.
 """
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / 'automre' / 'src'))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from parser import PythonParser
-from tracer import ExecutionTracer
-from validator import Validator
 from reducer import HybridDeltaDebugger
 from baselines import VanillaDDMin, SyntaxAwareReducer, RandomReducer
 from metrics import ReductionMetrics, BenchmarkResult, MetricsCollector
@@ -66,10 +71,6 @@ class SimpleBenchmarkRunner:
                     print(f"  Success! Reduction: {result.metrics.size_reduction_rate*100:.1f}%")
                     print(f"  Time: {result.metrics.time_seconds:.2f}s")
                     print(f"  Queries: {result.metrics.query_count}")
-
-                # Save minimized version
-                output_file = bug_file.parent / f"{bug_id}_minimized.py"
-                # We'll save the minimized version when running hdd-e
 
             except Exception as e:
                 print(f"  Exception: {e}")

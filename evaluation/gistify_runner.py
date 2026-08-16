@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -191,6 +190,10 @@ class GistifyResult:
     time_seconds: float
     error: Optional[str] = None
     protected_lines: int = 0
+    # .py files the reducer refused to touch because they are not valid
+    # UTF-8. Recorded so a lower reduction figure can be told apart from
+    # a tree that was only partly examined.
+    undecodable_files: int = 0
     # Queries killed by the per-query time limit. Recorded because a
     # handful of them can dominate a task's wall clock — on tomlkit, ten
     # queries out of 2,699 were 76% of all query time — while looking
@@ -431,7 +434,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
             python = spec.python
             test_command = _resolve_test_command(task.test_command, python)
         else:
-            print(f"  → installing work copy...", flush=True)
+            print("  → installing work copy...", flush=True)
             if not _install_work_copy(work_dir, python):
                 return GistifyResult(
                     task_id=task.task_id, execution_fidelity=0,
@@ -449,7 +452,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
         # one finds a new way for a task to look fine and be worthless.
         # require_pass because a Gistify task is a *passing* test — the
         # general case is the opposite and the gate defaults to it.
-        print(f"  → checking the task is worth reducing...", flush=True)
+        print("  → checking the task is worth reducing...", flush=True)
         verdict = gate_check(work_dir, test_command, timeout=timeout,
                              require_pass=task.requires_pass)
         baseline_out, baseline_rc = verdict.baseline_output, verdict.baseline_rc
@@ -478,7 +481,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
             python=python,
         )
 
-        print(f"  → reducing...", flush=True)
+        print("  → reducing...", flush=True)
         start = time.time()
         try:
             summary = debugger.reduce_project(work_dir, test_command)
@@ -493,7 +496,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
         elapsed = time.time() - start
 
         final_files, final_lines = _count_files_and_lines(work_dir)
-        print(f"  → checking execution fidelity...", flush=True)
+        print("  → checking execution fidelity...", flush=True)
         fidelity = _check_execution_fidelity(
             work_dir, test_command,
             baseline_out, baseline_rc, timeout=timeout)
@@ -509,6 +512,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
             total_queries=summary.total_queries,
             time_seconds=elapsed,
             protected_lines=summary.protected_line_count,
+            undecodable_files=len(summary.undecodable_files),
             timed_out_queries=summary.timed_out_queries,
             oracle_enabled=summary.oracle_enabled,
             oracle_skipped_attempts=summary.oracle_skipped_attempts,
@@ -669,7 +673,7 @@ def main() -> int:
     print(f"Single-file output: "
           f"{summary['single_file_rate']*100:.1f}%")
     print(f"Avg time / task:    {summary['avg_time_seconds']:.1f}s")
-    print(f"Gistify best (paper): 58.7% execution fidelity")
+    print("Gistify best (paper): 58.7% execution fidelity")
     return 0
 
 

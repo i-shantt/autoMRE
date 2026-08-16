@@ -24,7 +24,6 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / 'automre' / 'src'))
 
 from parser import PythonParser, format_code_without_units
-from tracer import ExecutionTracer
 from validator import Validator
 
 

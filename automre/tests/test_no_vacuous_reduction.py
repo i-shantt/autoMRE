@@ -167,3 +167,103 @@ def test_a_test_run_that_protects_nothing_is_refused(tmp_path):
     with pytest.raises(ValueError, match="nothing to protect"):
         debugger.reduce_project(
             proj, [sys.executable, "-m", "pytest", "-k", "add", "-q"])
+
+
+def test_a_projects_own_runner_counts_as_a_test_runner(tmp_path):
+    """Django's suite runs only through tests/runtests.py.
+
+    Without this the command reads as `python some_script.py`, where the
+    script is the subject and reducing it is the point. `_protected_files`
+    then returns nothing, the refusal guard never fires, and a *passing*
+    test run this way has the degenerate solution wide open: empty the
+    test, the runner still prints OK, and the library can go.
+    """
+    proj = _suite(tmp_path)
+    (proj / "tests" / "runtests.py").write_text("raise SystemExit(0)\n")
+    debugger = MultiFileDebugger(verbose=False)
+
+    assert debugger._is_test_runner(
+        [sys.executable, "tests/runtests.py", "mylib.SomeTests.test_x"])
+    # A bare word is a label or a directory far more often than a script.
+    assert not debugger._is_test_runner([sys.executable, "test", "-q"])
+
+
+def test_a_dotted_label_protects_the_file_holding_the_test(tmp_path):
+    """`runtests.py apps.tests.AppsTests.test_x` names no path.
+
+    Only the runner matches as a path, so on Django the harness was
+    protected and the file holding the test — the actual oracle — was
+    left reducible. Measured on django__django-17029: 0 lines protected
+    before, 1,332 after.
+    """
+    proj = _suite(tmp_path)
+    (proj / "tests" / "runtests.py").write_text("raise SystemExit(0)\n")
+    debugger = MultiFileDebugger(verbose=False)
+
+    protected = debugger._protected_files(
+        proj.resolve(),
+        [sys.executable, "tests/runtests.py", "test_mylib.TestX.test_add"])
+
+    names = {p.name for p in protected}
+    assert "test_mylib.py" in names, (
+        "the dotted label's file was not protected, so the reducer may "
+        "cut the test that defines the behavior being preserved")
+
+
+def test_a_label_naming_nothing_in_the_project_protects_nothing_extra(tmp_path):
+    """Guessing at a label that resolves nowhere would be worse."""
+    proj = _suite(tmp_path)
+    debugger = MultiFileDebugger(verbose=False)
+
+    found = debugger._files_named_by_label(
+        proj.resolve(), ["some.module.that.is.not.here"])
+
+    assert found == set()
+
+
+def test_an_ordinary_module_named_tests_is_not_mistaken_for_a_runner():
+    """A false positive here silently disables the reduction.
+
+    "test.py" and "tests.py" are ordinary module names far more often
+    than entry points. Treating one as a runner protects it as the
+    oracle, so a project whose subject *is* that script reduces to
+    nothing at all while reporting success.
+    """
+    assert not MultiFileDebugger._is_test_runner(["python3", "tests/test.py"])
+    assert not MultiFileDebugger._is_test_runner(["python3", "apps/tests.py"])
+    # The narrow set still covers the two that motivated it.
+    assert MultiFileDebugger._is_test_runner(["python3", "tests/runtests.py"])
+    assert MultiFileDebugger._is_test_runner(["python3", "bin/test", "x"])
+
+
+def test_a_label_is_found_when_the_tests_are_somewhere_unusual(tmp_path):
+    """Two hardcoded guesses left an unconventional layout unprotected.
+
+    Checking only `<project>/` and `<project>/tests/` covers the common
+    cases and silently misses the rest, which moves the hole rather than
+    closing it. The glob fallback is anchored on the full stem, so
+    "apps/tests.py" cannot be satisfied by an unrelated "tests.py".
+    """
+    proj = (tmp_path / "proj").resolve()
+    (proj / "src" / "tests").mkdir(parents=True)
+    (proj / "src" / "tests" / "test_thing.py").write_text(
+        "def test_x():\n    pass\n")
+
+    found = MultiFileDebugger._files_named_by_label(
+        proj, ["test_thing.TestC.test_x"])
+
+    assert {p.name for p in found} == {"test_thing.py"}
+
+
+def test_a_label_prefers_a_longer_prefix_over_a_bare_name(tmp_path):
+    """`apps.tests....` means apps/tests.py, not some other tests.py."""
+    proj = (tmp_path / "proj").resolve()
+    (proj / "tests" / "apps").mkdir(parents=True)
+    (proj / "tests" / "apps" / "tests.py").write_text("x = 1\n")
+    (proj / "unrelated").mkdir()
+    (proj / "unrelated" / "tests.py").write_text("y = 2\n")
+
+    found = MultiFileDebugger._files_named_by_label(
+        proj, ["apps.tests.AppsTests.test_y"])
+
+    assert {str(p.relative_to(proj)) for p in found} == {"tests/apps/tests.py"}

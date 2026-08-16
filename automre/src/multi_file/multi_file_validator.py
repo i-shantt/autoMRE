@@ -20,7 +20,7 @@ import sys as _sys
 import time
 from collections import deque
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Deque, Dict, Iterator, List, Optional
 

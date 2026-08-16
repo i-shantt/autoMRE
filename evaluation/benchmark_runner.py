@@ -10,8 +10,6 @@ Based on:
 
 from __future__ import annotations
 
-import json
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -20,12 +18,9 @@ from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, str(Path(__file__).parent.parent / 'automre' / 'src'))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from parser import PythonParser
-from tracer import ExecutionTracer
-from validator import Validator
 from reducer import HybridDeltaDebugger
 from baselines import VanillaDDMin, SyntaxAwareReducer, RandomReducer
-from metrics import ReductionMetrics, BenchmarkResult, MetricsCollector, compute_metrics
+from metrics import ReductionMetrics, BenchmarkResult, MetricsCollector
 
 
 class BugsInPyAdapter:
@@ -174,7 +169,7 @@ class BenchmarkRunner:
         projects = self.adapter.list_projects()
         bugs_evaluated = 0
 
-        print(f"Starting benchmark evaluation...")
+        print("Starting benchmark evaluation...")
         print(f"Algorithm: {self.algorithm}")
         print(f"Max bugs: {self.max_bugs}")
         print(f"Projects: {len(projects)}")
