@@ -126,3 +126,57 @@ def test_an_anchor_spanning_a_reduced_away_line_does_not_apply(tmp_path):
     _, status = apply_edits(tmp_path, edits)
 
     assert status == "SEARCH block not found in file"
+
+
+# ---------------------------------------------- the previously-passing set
+
+def test_ids_pytest_cannot_collect_are_dropped_not_fatal(tmp_path):
+    """SWE-bench's PASS_TO_PASS is not all runnable as written.
+
+    pylint's list contains a parametrized id truncated at the comma
+    inside its own parameter:
+
+        tests/config/test_config.py::test_p[foo,
+
+    Handed to pytest it fails the whole batch, which made the
+    *ground-truth* patch look like it broke previously-passing tests —
+    and a rig that reports that scores every arm as a regression.
+    """
+    import sys as _sys
+    from score_patches import p2p_command
+
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_x.py").write_text(
+        "import pytest\n\n"
+        "@pytest.mark.parametrize('a', ['foo', 'foo,bar'])\n"
+        "def test_p(a):\n    assert a\n\n"
+        "def test_plain():\n    assert True\n")
+
+    command, dropped = p2p_command(
+        tmp_path,
+        ["tests/test_x.py::test_plain",
+         "tests/test_x.py::test_p[foo]",
+         "tests/test_x.py::test_p[foo,"],
+        _sys.executable, timeout=120)
+
+    assert dropped == ["tests/test_x.py::test_p[foo,"]
+    assert "tests/test_x.py::test_plain" in command
+    assert "tests/test_x.py::test_p[foo]" in command
+
+
+def test_django_labels_route_through_the_project_runner(tmp_path):
+    from score_patches import p2p_command
+
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "runtests.py").write_text("")
+
+    command, dropped = p2p_command(
+        tmp_path,
+        ["test_a (apps.tests.AppsTests.test_a)",
+         "test_b (apps.tests.AppsTests.test_b)"],
+        "python3", timeout=120)
+
+    assert command == ["python3", "tests/runtests.py",
+                       "apps.tests.AppsTests.test_a",
+                       "apps.tests.AppsTests.test_b", "-v", "0"]
+    assert dropped == []
