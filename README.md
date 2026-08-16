@@ -982,38 +982,70 @@ pinned-dependency problem, which is exactly why SWE-bench ships a Docker
 image per instance. Reaching the rest of the dataset means per-instance
 interpreters, not a change to this code.
 
-#### One reduced end to end
+#### All seven, reduced end to end
 
-`mwaskom__seaborn-3187`, a real instance of a repository autoMRE had
-never seen, reduced with `--provision-per-task`:
+Every instance the gate accepted was reduced with `--provision-per-task`,
+on one laptop, one at a time. None of these five repositories had been
+measured before; four of them are between 8× and 40× larger than
+anything in the benchmark.
 
-| | |
-|---|---:|
-| files | 152 → **18** |
-| lines | 54,019 → **4,156** (**92.31%**) |
-| reducible-only | 51,771 → **1,908** (**96.31%**) |
-| execution fidelity | **1/1** |
-| queries | 5,228 |
-| wall clock | 53 min |
+| instance | lines | → | raw | reducible-only | fid. | queries | q/line | hours |
+|---|---:|---|---:|---:|:-:|---:|---:|---:|
+| `mwaskom__seaborn-3187` | 54,019 | 4,156 | 92.31% | 96.31% | 1/1 | 5,228 | 0.097 | 1.0 |
+| `pylint-dev__pylint-8898` | 112,008 | 2,288 | 97.96% | 98.29% | 1/1 | 6,400 | 0.057 | 0.4 |
+| `django__django-17029` | 456,901 | 2,575 | 99.44% | 99.73% | 1/1 | 23,664 | 0.052 | 1.8 |
+| `django__django-17087` | 457,222 | 3,602 | 99.21% | 99.61% | 1/1 | 24,144 | 0.053 | 1.9 |
+| `django__django-17084` | 457,257 | 9,455 | 97.93% | 98.58% | 1/1 | 35,229 | 0.077 | 2.6 |
+| `sympy__sympy-24562` | 685,418 | 5,931 | 99.13% | 99.48% | 1/1 | 42,656 | 0.062 | 9.7 |
+| `sympy__sympy-24661` | 687,383 | 1,908 | 99.72% | 99.80% | 1/1 | 43,186 | 0.063 | 5.5 |
+| **aggregate** | **2,910,208** | **29,915** | **98.97%** | **99.37%** | **7/7** | **180,507** | **0.062** | **22.9** |
 
-The reducible-only figure is the fair comparison with the benchmark's
-95.77%, since the named test is the question and is never removable.
-That an unseen repository lands slightly *above* the tuned benchmark is
-not evidence of anything except that seaborn had more dead weight to
-shed than requests does.
+Reducible-only excludes the protected lines from both sides, and is the
+fair comparison with the benchmark's 95.77%: the named test is the
+question, so it is never removable. That unseen repositories land *above*
+the tuned benchmark is not evidence of quality — it says a 457k-line
+Django checkout carries more that one test does not touch than a
+17k-line requests checkout does. The number to be pleased about is
+7/7 fidelity, which says every one of those trees still reproduces.
 
-The interesting figure is none of those. It is **0.097 queries per
-line** — *below* the 0.11–0.48 range measured on the benchmark's
-8k–17k-line repositories, at four times the size.
+The interesting figure is none of the reduction rates. It is **0.052 to
+0.097 queries per line, entirely below the 0.11–0.48 range** measured on
+the benchmark's 8k–17k-line repositories — at up to forty times the size.
 
 That was the open question this work existed to answer, and it settles
 it in the useful direction. The worry was that cost grows with the
 repository, making large instances unaffordable: at 0.48 queries per
-line a 457k-line Django checkout would be 219,000 queries. It does not
-grow, because Phases 1–3 delete most of a large repository in bulk
-before Phase 4 ever walks it, and Phase 4 is ~97% of the queries.
-Reducing all seven accepted instances is an estimated **19 core-hours**,
-which is a laptop overnight rather than a cluster.
+line a 457k-line Django checkout would have been 219,000 queries and
+about a week. It came in at 23,664 and under two hours. Cost does not
+scale with the tree, because Phases 1–3 delete most of a large repository
+in bulk before Phase 4 ever walks it, and Phase 4 is ~97% of the queries.
+
+Two caveats on that, both visible in the table:
+
+**The estimate was 17% low.** Seven instances were predicted at ~19
+core-hours and took **22.9**. Predicting from queries alone under-counts,
+because per-query cost is the repository's own test command and is not
+constant across repositories.
+
+**sympy is where that shows.** Its two instances ran 42,656 and 43,186
+queries — within 1.2% of each other — in **9.7 h and 5.5 h**. Nearly the
+same work, nearly double the time. Query count is a portable measure of
+the algorithm; wall clock is a measure of somebody else's test suite,
+and only one of those two is worth optimising.
+
+The seven manifests the gate produced are committed as
+`evaluation/swebench_tasks.json`, and the results above are
+`evaluation/results_swebench.json`, so this is re-runnable without
+re-ingesting:
+
+```bash
+python3 evaluation/gistify_runner.py \
+    --tasks evaluation/swebench_tasks.json --provision-per-task \
+    --output /tmp/swebench.json
+```
+
+Budget a day. It clones five repositories at seven pinned commits and
+builds an environment per instance; sympy alone is 15 of the 23 hours.
 
 ### Where the idea came from
 
