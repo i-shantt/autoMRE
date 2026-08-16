@@ -66,25 +66,10 @@ model = AutoModelForCausalLM.from_pretrained(
     attn_implementation="sdpa")
 model.eval()
 print("loaded", MODEL)
-```
 
-## Cell 3 — generate
-
-```python
 # Samples for one context share a single prefill. At ~17k prompt tokens
 # that is most of the cost, so five samples take barely longer than one;
 # generating them one at a time would pay the prefill five times over.
-# On out-of-memory the batch halves and the work is retried rather than
-# lost — a T4 that got a smaller share of memory should slow the run
-# down, not end it.
-
-done = set()
-if os.path.exists(OUT):
-    for line in open(OUT):
-        row = json.loads(line)
-        done.add((row["instance_id"], row["arm"], row["sample"]))
-    print(f"resuming: {len(done)} generations already on disk")
-
 def generate(prompt, n):
     text = tok.apply_chat_template(
         [{"role": "user", "content": prompt}],
@@ -97,6 +82,21 @@ def generate(prompt, n):
             pad_token_id=tok.pad_token_id or tok.eos_token_id)
     return [tok.decode(seq[enc["input_ids"].shape[1]:],
                        skip_special_tokens=True) for seq in out]
+```
+
+## Cell 3 — generate
+
+```python
+# On out-of-memory the batch halves and the work is retried rather than
+# lost — a T4 that got a smaller share of memory should slow the run
+# down, not end it.
+
+done = set()
+if os.path.exists(OUT):
+    for line in open(OUT):
+        row = json.loads(line)
+        done.add((row["instance_id"], row["arm"], row["sample"]))
+    print(f"resuming: {len(done)} generations already on disk")
 
 fh = open(OUT, "a")
 start = time.time()
@@ -145,4 +145,30 @@ for arm in sorted({r["arm"] for r in rows}):
     print(f"  {arm:<13} {len(got):>3} generations, {hit:>3} parseable")
 print("\n--- one sample ---\n")
 print(rows[0]["output"][:1500])
+```
+
+## Cell 5 — capacity check
+
+Run this alone (`include="Cell 0,Cell 2,Cell 5"`) before queuing the
+real thing. It answers the three questions that decide whether the run
+finishes: how many GPUs this session got, whether five samples share one
+16k-token prefill without running out of memory, and how long a cell
+takes — which times the whole run. A synthetic prompt of the right size
+does that without needing `contexts.jsonl` to exist yet.
+
+```python
+prompt = ("### synthetic.py\n```python\n"
+          + "".join(f"def f_{i}(x):\n    return x + {i}\n\n"
+                    for i in range(2200))
+          + "```\nFix the bug and reply with a SEARCH/REPLACE edit.")
+n_tok = len(tok(prompt)["input_ids"])
+print(f"synthetic prompt: {n_tok} tokens")
+
+t0 = time.time()
+texts = generate(prompt, 5)
+dt = time.time() - t0
+print(f"5 samples in {dt:.0f}s -> {21 * dt / 60:.0f} min for 21 contexts")
+for i in range(torch.cuda.device_count()):
+    print(f"  gpu{i} peak {torch.cuda.max_memory_allocated(i)/2**30:.1f} GiB")
+print(repr(texts[0][:200]))
 ```
