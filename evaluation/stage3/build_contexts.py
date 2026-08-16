@@ -337,16 +337,24 @@ def build(instance: dict, task: GistifyTask, reduced_root: Path,
         ranked = [name for name, _ in BM25(files).rank(problem)]
         ctx = pack(ranked, files, budget,
                    token_costs(files, count_tokens_batch))
-        rows.append((arm, files, ctx))
+        # Where the answer ranked, not just whether it fit. Recall alone
+        # is decided at the budget boundary — on pylint the buggy file
+        # ranked 13th of 2,187 and the budget held 11 — so a rank makes
+        # the retrieval comparison survive a different budget, and stops
+        # this from being a report on one arbitrary number.
+        rank_of = {name: i for i, name in enumerate(ranked)}
+        rows.append((arm, files, ctx,
+                     {g: rank_of.get(g) for g in gold if g in files}))
 
     # The ceiling: the files the answer is in, and nothing else.
     oracle_files = {g: full[g] for g in gold if g in full}
     rows.append(("oracle", oracle_files,
                  pack(sorted(oracle_files), oracle_files, budget,
-                      token_costs(oracle_files, count_tokens_batch))))
+                      token_costs(oracle_files, count_tokens_batch)),
+                 {g: i for i, g in enumerate(sorted(oracle_files))}))
 
     out = []
-    for arm, files, ctx in rows:
+    for arm, files, ctx, ranks in rows:
         hit = [g for g in gold if g in ctx.included]
         prompt = build_prompt(problem, failing_test, ctx.text)
         out.append({
@@ -362,11 +370,16 @@ def build(instance: dict, task: GistifyTask, reduced_root: Path,
             "gold_files": gold,
             "gold_files_present_in_tree": [g for g in gold if g in files],
             "gold_files_in_context": hit,
+            "gold_file_ranks": ranks,
             "recall": len(hit) / len(gold) if gold else 0.0,
         })
+        best = min([r for r in ranks.values() if r is not None],
+                   default=None)
         print(f"  {arm:<13} {ctx.tokens:>6} tok  "
               f"{len(ctx.included):>3}/{ctx.considered} files  "
-              f"recall {len(hit)}/{len(gold)}", flush=True)
+              f"recall {len(hit)}/{len(gold)}"
+              f"   best gold rank "
+              f"{'-' if best is None else best + 1}", flush=True)
     return out
 
 
