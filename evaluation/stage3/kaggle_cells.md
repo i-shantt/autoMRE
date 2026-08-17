@@ -53,6 +53,21 @@ for c in skipped:
     print(f"skipping {c['instance_id']} {c['arm']}: no file fits whole "
           f"(oversize gold: {', '.join(c['gold_files_oversize']) or 'none'})")
 
+# An instance whose controls failed cannot be scored, so generating for
+# it spends GPU time on output nothing will ever read. seaborn-3187 is
+# the one here: pandas 3.0 against 2022-era seaborn breaks 249
+# previously-passing tests, so even the ground-truth patch reads as a
+# regression. Its controls are committed beside this file as the
+# evidence for the exclusion, rather than the instance quietly going
+# missing.
+scoreable = set(json.load(open(
+    "/kaggle/working/autoMRE/evaluation/stage3/controls.json"))["scoreable"])
+dropped = sorted({c["instance_id"] for c in contexts
+                  if c["instance_id"] not in scoreable})
+contexts = [c for c in contexts if c["instance_id"] in scoreable]
+for iid in dropped:
+    print(f"skipping {iid}: controls failed, nothing here could score it")
+
 print(f"{len(contexts)} contexts")
 for c in contexts:
     print(f"  {c['instance_id']:<24} {c['arm']:<13} "
