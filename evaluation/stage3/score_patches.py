@@ -521,6 +521,34 @@ def summarize(rows: List[dict], controls: Dict[str, dict]) -> dict:
                 1 for rs in by_inst.values()
                 if any(r["located_gold_file"] for r in rs)) / len(by_inst),
         }
+
+    # Two arms asked different questions do not compare, and nothing
+    # about the table above says so — every rate is a clean fraction
+    # whatever it was computed over. A generation run that ran out of
+    # session time partway through leaves exactly this shape: the arms
+    # generated first are complete, the last one is not, and the last
+    # one looks like it simply did worse.
+    #
+    # The oracle arm is a legitimate exception, since it cannot be built
+    # where the gold file exceeds the budget, so the warning names the
+    # difference rather than refusing to report.
+    coverage = {arm: set(data["instances"]) for arm, data in
+                out["arms"].items()}
+    widest = max(coverage.values(), key=len, default=set())
+    uneven = {arm: sorted(widest - seen)
+              for arm, seen in coverage.items() if seen != widest}
+    if uneven:
+        out["uneven_coverage"] = uneven
+        print("\nWARNING: arms do not cover the same instances, so their "
+              "rates are not directly comparable:")
+        for arm, missing in sorted(uneven.items()):
+            print(f"  {arm} is missing {', '.join(missing)}")
+
+    samples = {arm: data["n_samples"] for arm, data in out["arms"].items()}
+    if len(set(samples.values())) > 1:
+        out["uneven_sample_counts"] = samples
+        print(f"\nWARNING: arms have different sample counts: {samples}")
+
     return out
 
 
