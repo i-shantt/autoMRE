@@ -114,6 +114,7 @@ for i in range(torch.cuda.device_count()):
         raise SystemExit(
             f"{torch.cuda.get_device_name(i)} is sm_{major}{minor}; this "
             f"PyTorch supports {sorted(supported)}. Re-run to be given a "
+            f"different GPU — nothing here will work on this one.")
 
 tok = AutoTokenizer.from_pretrained(MODEL)
 model = AutoModelForCausalLM.from_pretrained(

@@ -128,6 +128,24 @@ def main() -> int:
         if not cells:
             raise SystemExit(f"--include {args.include!r} matched no cell")
 
+    # Compile every cell before anything is uploaded. A cell that does
+    # not parse costs a whole Kaggle session to discover — the run
+    # queues, is given a machine, installs, and only then reports
+    # `SyntaxError: '(' was never closed` from an edit that dropped a
+    # line. Locally that is a microsecond.
+    #
+    # Cells are compiled together, in document order, because a later
+    # cell legitimately uses names an earlier one binds; compiling them
+    # one at a time would say nothing about the run.
+    joined = "\n\n".join(code for _, code in cells)
+    try:
+        compile(joined, "<cells>", "exec")
+    except SyntaxError as exc:
+        raise SystemExit(
+            f"{args.cells}: the selected cells do not parse — "
+            f"{exc.msg} (line {exc.lineno} of the joined source). "
+            f"Nothing was pushed.")
+
     build = Path(args.build_dir) if args.build_dir else _HERE / "_kernel"
     if build.exists():
         shutil.rmtree(build)
