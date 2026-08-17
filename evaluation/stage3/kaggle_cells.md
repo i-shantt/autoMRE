@@ -26,7 +26,13 @@ MODEL  = "Qwen/Qwen2.5-Coder-7B-Instruct"   # Apache-2.0, open weights
 K_SAMPLES      = 5        # samples per (instance, arm)
 TEMPERATURE    = 0.6      # Qwen's own recommendation for this model
 TOP_P          = 0.95
-MAX_NEW_TOKENS = 1024
+# Measured against the answers, not guessed. Re-expressed as
+# SEARCH/REPLACE edits, the ground-truth patches run 105 to 719 tokens,
+# and pylint's 719 is 70% of a 1024 ceiling — close enough that a model
+# adding a sentence of preamble would be cut off mid-block and scored
+# as having produced nothing parseable. Generation stops at EOS anyway,
+# so the headroom is free.
+MAX_NEW_TOKENS = 1536
 
 OUT = "/kaggle/working/generations.jsonl"
 print("config ok")
