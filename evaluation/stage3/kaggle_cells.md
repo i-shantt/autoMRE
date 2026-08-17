@@ -162,6 +162,17 @@ tok = AutoTokenizer.from_pretrained(MODEL)
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 
+# Force scaled-dot-product attention onto a backend whose memory is
+# linear in sequence length. Left to choose, it fell back to the *math*
+# backend and asked for 36.60 GiB on a 14.56 GiB card — which is
+# exactly 28 heads x 18702^2 x 4 bytes, the full attention matrix,
+# materialised. That is why halving the batch never helped: at batch 1
+# the request was unchanged, because the cost is quadratic in the
+# prompt, not linear in the batch.
+torch.backends.cuda.enable_flash_sdp(True)
+torch.backends.cuda.enable_mem_efficient_sdp(True)
+torch.backends.cuda.enable_math_sdp(False)
+
 n_gpu = torch.cuda.device_count()
 per_gpu = torch.cuda.get_device_properties(0).total_memory / 2**30
 weight_cap = f"{max(4.0, per_gpu * 0.55):.0f}GiB"
