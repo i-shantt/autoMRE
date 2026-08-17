@@ -380,12 +380,27 @@ def main() -> int:
     ap.add_argument("--cache-dir", default=None)
     ap.add_argument("--timeout", type=int, default=900)
     ap.add_argument("--only", default=None)
+    ap.add_argument("--controls-only", action="store_true",
+                    help="Run every instance's controls and stop, without "
+                         "scoring anything. This is the pre-flight: it "
+                         "provisions each repository, checks the target "
+                         "test fails before the fix and that the "
+                         "ground-truth patch resolves it without breaking "
+                         "the previously-passing set. An instance that "
+                         "fails here cannot score any arm, and finding "
+                         "that out after a GPU run costs the GPU run — "
+                         "which is how the truncated PASS_TO_PASS ids "
+                         "were caught.")
     args = ap.parse_args()
 
-    gens = [json.loads(line) for line in
-            Path(args.generations).read_text().splitlines() if line.strip()]
     records = {r["instance_id"]: r for r in
                json.loads(Path(args.instances).read_text())["instances"]}
+    if args.controls_only:
+        gens = [{"instance_id": iid, "arm": "-", "sample": 0, "output": ""}
+                for iid in sorted(records)]
+    else:
+        gens = [json.loads(line) for line in
+                Path(args.generations).read_text().splitlines() if line.strip()]
     tasks = {t["task_id"]: GistifyTask(**t) for t in
              json.loads(Path(args.tasks).read_text())["tasks"]}
     if args.only:
@@ -418,6 +433,18 @@ def main() -> int:
                 controls[task_id] = {"error": f"provisioning failed: {exc}"}
                 continue
             controls[task_id] = inst.controls
+            if args.controls_only:
+                c = inst.controls
+                ok = (c["target_test_fails_before_fix"]
+                      and c["ground_truth_patch_resolves"])
+                print(f"{task_id:<24} {'PASS' if ok else 'FAIL'}  "
+                      f"fails-before={c['target_test_fails_before_fix']} "
+                      f"gold-resolves={c['ground_truth_patch_resolves']} "
+                      f"p2p={c['p2p_tests_run']} run"
+                      + (f", {len(c['p2p_ids_not_collectable'])} not "
+                         f"collectable" if c["p2p_ids_not_collectable"]
+                         else ""), flush=True)
+                continue
             for gen in sorted(by_instance[task_id],
                               key=lambda g: (g["arm"], g["sample"])):
                 row = score_sample(inst, gen["output"], args.timeout)
