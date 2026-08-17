@@ -70,6 +70,12 @@ def read_cells(path: Path) -> List[Tuple[str, str]]:
     return cells
 
 
+def slugify(title: str) -> str:
+    """Kaggle's own rule for turning a title into a URL slug."""
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-",
+                                     title.lower())).strip("-")
+
+
 def notebook(cells: List[Tuple[str, str]]) -> dict:
     return {
         "cells": [
@@ -118,6 +124,19 @@ def main() -> int:
     build.mkdir(parents=True)
 
     name = args.slug.split("/")[-1]
+
+    # Kaggle derives the kernel's URL from the *title*, not the id, and
+    # only warns when the two disagree. Pushing "autoMRE stage 3
+    # capacity check" against the id `automre-stage3-capacity` created
+    # `automre-stage-3-capacity-check` instead, so the id could no
+    # longer address the kernel — and a second push would have made a
+    # second kernel and spent the GPU quota twice. Refuse instead.
+    if args.title and slugify(args.title) != name:
+        raise SystemExit(
+            f"title {args.title!r} resolves to {slugify(args.title)!r}, "
+            f"not {name!r}. Kaggle would push to that slug instead and "
+            f"the id could not address it. Pick a title that slugifies "
+            f"to the slug, or pass no title.")
     (build / f"{name}.ipynb").write_text(json.dumps(notebook(cells), indent=1))
     (build / "kernel-metadata.json").write_text(json.dumps({
         "id": args.slug if "/" in args.slug else f"ishantchintapatla/{args.slug}",
