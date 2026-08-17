@@ -1182,6 +1182,19 @@ evaluation/
                             with its reason
   cloud_bench.py            same harness for Colab/Kaggle, plus the
                             --ablation coverage-prune A/B
+  swebench_tasks.json       the seven SWE-bench Verified manifests the
+                            gate accepted, plus results_swebench.json
+  stage3/                   does a smaller repository help a model find
+                            the bug
+    build_contexts.py       BM25, budgeting, and the three arms
+    instances.json          the seven full SWE-bench records
+    contexts.jsonl          one row per (instance, arm): the prompt and
+                            what retrieval put in it
+    controls.json           which instances are scoreable, and why the
+                            one that is not was excluded
+    score_patches.py        parse edits, apply, run F2P then P2P
+    kaggle_cells.md         the generation notebook, as reviewable text
+    push_kernel.py          turns that into a notebook and pushes it
   results_gistify_*.json    results per configuration
 notebooks/
   automre_benchmark.ipynb   driver for cloud_bench.py on a hosted runtime
