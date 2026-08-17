@@ -138,16 +138,34 @@ for i in range(torch.cuda.device_count()):
             f"different GPU — nothing here will work on this one.")
 
 tok = AutoTokenizer.from_pretrained(MODEL)
+
+# `device_map="auto"` fills one GPU before touching the next, so on two
+# T4s it put 11.5 GiB of weights on GPU 0 and left GPU 1 half empty —
+# then the KV cache for five 18k-token sequences had 1.25 GiB to live
+# in and asked for 1.31. The weights are capped per device instead, so
+# they spread and leave the same headroom on both cards.
+#
+# 1.66 GiB was also reserved-but-unallocated, i.e. fragmentation, which
+# is what expandable segments are for.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
+
+n_gpu = torch.cuda.device_count()
+per_gpu = torch.cuda.get_device_properties(0).total_memory / 2**30
+weight_cap = f"{max(4.0, per_gpu * 0.55):.0f}GiB"
+print(f"{n_gpu} x {per_gpu:.1f} GiB; capping weights at {weight_cap}/GPU")
+
 model = AutoModelForCausalLM.from_pretrained(
     MODEL, torch_dtype=torch.float16, device_map="auto",
+    max_memory={i: weight_cap for i in range(n_gpu)},
     attn_implementation="sdpa")
 model.eval()
-print("loaded", MODEL)
+print("loaded", MODEL, "->", set(model.hf_device_map.values()))
 
 # Samples for one context share a single prefill. At ~17k prompt tokens
 # that is most of the cost, so five samples take barely longer than one;
 # generating them one at a time would pay the prefill five times over.
-def generate(prompt, n):
+def _generate_once(prompt, n):
     text = tok.apply_chat_template(
         [{"role": "user", "content": prompt}],
         tokenize=False, add_generation_prompt=True)
@@ -159,14 +177,39 @@ def generate(prompt, n):
             pad_token_id=tok.pad_token_id or tok.eos_token_id)
     return [tok.decode(seq[enc["input_ids"].shape[1]:],
                        skip_special_tokens=True) for seq in out]
+
+
+# How many samples fit at once is not knowable in advance: the prefill
+# activation scales with the batch, so it depends on the prompt, and the
+# prompts here run from 16k to 17.4k tokens. Halving on OOM finds the
+# answer per call rather than making the whole run pay for the worst
+# context.
+#
+# This lives here rather than in the generation loop so the capacity
+# check exercises the same code the run does — a check that measures an
+# easier thing than the run is not a check.
+def generate(prompt, n):
+    texts, batch = [], n
+    while len(texts) < n:
+        try:
+            texts += _generate_once(prompt, min(batch, n - len(texts)))
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            if batch == 1:
+                raise
+            batch = max(1, batch // 2)
+            print(f"  OOM -> batch {batch}", flush=True)
+    return texts
 ```
 
 ## Cell 3 — generate
 
 ```python
-# On out-of-memory the batch halves and the work is retried rather than
-# lost — a T4 that got a smaller share of memory should slow the run
-# down, not end it.
+# Results are appended as they are produced, and a restart picks up
+# from what is already on disk — a session that runs out of time
+# returns everything up to that point rather than nothing. Batch
+# shrinking on out-of-memory lives in `generate` itself, so the
+# capacity check and this loop behave identically.
 
 done = set()
 if os.path.exists(OUT):
@@ -183,16 +226,7 @@ for ctx in contexts:
     if not todo:
         continue
     t0 = time.time()
-    texts, batch = [], len(todo)
-    while len(texts) < len(todo):
-        try:
-            texts += generate(ctx["prompt"], min(batch, len(todo) - len(texts)))
-        except torch.cuda.OutOfMemoryError:
-            torch.cuda.empty_cache()
-            if batch == 1:
-                raise
-            batch = max(1, batch // 2)
-            print(f"  OOM -> batch {batch}")
+    texts = generate(ctx["prompt"], len(todo))
     for sample, text in zip(todo, texts):
         fh.write(json.dumps({
             "instance_id": ctx["instance_id"], "arm": ctx["arm"],
