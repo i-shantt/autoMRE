@@ -180,3 +180,25 @@ def test_django_labels_route_through_the_project_runner(tmp_path):
                        "apps.tests.AppsTests.test_a",
                        "apps.tests.AppsTests.test_b", "-v", "0"]
     assert dropped == []
+
+
+def test_a_failure_in_a_later_file_rolls_back_the_earlier_one(tmp_path):
+    """Rollback has to span files, not just edits within one file.
+
+    pylint's ground-truth patch touches three files, so a model
+    answering that instance emits edits across several. If the first
+    file were left modified when the third fails to apply, the tree
+    handed to the test runner would be half the model's answer and
+    would be scored as all of it.
+    """
+    (tmp_path / "a.py").write_text("x = 1\n")
+    (tmp_path / "b.py").write_text("y = 1\n")
+    text = (_block("a.py", "x = 1", "x = 2")
+            + _block("b.py", "not present anywhere", "y = 2"))
+
+    edits, _ = parse_edits(text)
+    _, status = apply_edits(tmp_path, edits)
+
+    assert status == "SEARCH block not found in file"
+    assert (tmp_path / "a.py").read_text() == "x = 1\n"
+    assert (tmp_path / "b.py").read_text() == "y = 1\n"

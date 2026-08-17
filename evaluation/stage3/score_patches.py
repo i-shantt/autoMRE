@@ -107,12 +107,21 @@ def parse_edits(text: str) -> Tuple[List[Edit], Optional[str]]:
 def apply_edits(tree: Path, edits: List[Edit]) -> Tuple[Dict[str, str], str]:
     """Apply edits in place; return the originals and a status.
 
-    Exact text match only. A fuzzy match would let an edit land somewhere
-    the model did not mean, and "the patch applied" would stop meaning
-    what it says. Whitespace-insensitive retries are counted separately
-    by the caller so the reduced arm's particular failure mode — an
-    anchor spanning lines the reducer deleted — stays visible instead of
-    being papered over.
+    Exact text match only, and no fallback of any kind — not a
+    whitespace-insensitive retry, not a nearest-match. A fuzzy match
+    would let an edit land somewhere the model did not mean, and "the
+    patch applied" would stop meaning what it says.
+
+    That strictness is what keeps the reduced arm's particular failure
+    mode visible: its SEARCH block is copied from a tree the reducer cut
+    lines out of, so an anchor spanning a deletion cannot exist in the
+    original. It has to be reported as not-applying and counted, because
+    an arm whose edits land approximately is not an arm anyone can
+    score.
+
+    Edits are applied in order and rolled back as a group, so a run of
+    edits across several files either all land or none do — half a patch
+    would otherwise be scored as the model's whole answer.
     """
     originals: Dict[str, str] = {}
     for edit in edits:
