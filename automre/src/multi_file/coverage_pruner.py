@@ -199,12 +199,7 @@ class CoveragePruner:
             # A live decorated class: descend past the class node itself,
             # so the class_definition rule below cannot take it bare and
             # strand its decorators.
-            collected: List[RemovedRange] = []
-            for child in inner.children:
-                collected.extend(
-                    self._find_prunable(child, executed_lines, accept,
-                                        offsets))
-            return collected
+            return self._descend(inner, executed_lines, accept, offsets)
 
         if node_type == "function_definition":
             body = self._function_body(node)
@@ -223,11 +218,69 @@ class CoveragePruner:
                 return []
             return [self._to_range(node, offsets)]
 
+        return self._descend(node, executed_lines, accept, offsets)
+
+    def _descend(self, node: Node,
+                 executed_lines: Set[int],
+                 accept: Optional[Callable[[Node], bool]],
+                 offsets: Optional[List[int]]) -> List[RemovedRange]:
+        """Walk a node's children, treating `block` children specially."""
         collected: List[RemovedRange] = []
         for child in node.children:
-            collected.extend(
-                self._find_prunable(child, executed_lines, accept,
-                                    offsets))
+            if child.type == "block":
+                collected.extend(
+                    self._prune_block(child, executed_lines, accept, offsets))
+            else:
+                collected.extend(
+                    self._find_prunable(child, executed_lines, accept,
+                                        offsets))
+        return collected
+
+    def _prune_block(self, block: Node,
+                     executed_lines: Set[int],
+                     accept: Optional[Callable[[Node], bool]],
+                     offsets: Optional[List[int]]) -> List[RemovedRange]:
+        """Removals inside one block — never every statement in it.
+
+        A block with all of its statements taken is a header with nothing
+        underneath: `class Helper:` or `if flag:` followed by the next
+        unindented line. That is a syntax error, and Phase 4a checks the
+        file parses before spending a query on it, so such a block does
+        not cost a query — it costs the *file*. Every other legitimate
+        removal in it is thrown away along with the broken one, and the
+        units it would have taken are then rediscovered by HDD-E one
+        query at a time.
+
+        Both halves of that are easy to reach. Coverage records a class's
+        `def` lines as executed at import even when no method is ever
+        called, so an entirely dead class is never taken whole — it is
+        descended into and hollowed out method by method. An `if` whose
+        condition ran false the same way.
+
+        So the last statement stays. One unit is a cheap price for the
+        rest of the file's prune, and HDD-E will propose that unit again
+        on its own.
+        """
+        # Comments are named nodes, and a block holding only comments is
+        # still not a body, so they cannot be what keeps the block alive.
+        statements = [c for c in block.children
+                      if c.is_named and c.type != "comment"]
+        per_statement = [
+            (s, self._find_prunable(s, executed_lines, accept, offsets))
+            for s in statements
+        ]
+
+        def taken_whole(stmt: Node, found: List[RemovedRange]) -> bool:
+            return (len(found) == 1
+                    and found[0].start_char == to_char_offset(offsets,
+                                                              stmt.start_byte)
+                    and found[0].end_char == to_char_offset(offsets,
+                                                            stmt.end_byte))
+
+        collected = [r for _, found in per_statement for r in found]
+        if statements and all(taken_whole(s, f) for s, f in per_statement):
+            keep = per_statement[-1][1]
+            collected = [r for r in collected if r not in keep]
         return collected
 
     @staticmethod
