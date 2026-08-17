@@ -279,6 +279,18 @@ def prepare(record: dict, task: GistifyTask, workspace: Path,
     print(f"[{task_id}] preparing...", flush=True)
     source = _ensure_repo(task, cache_dir=cache_dir)
     tree = workspace / task_id
+    # The tree is replaced rather than reused, even in a named
+    # workspace. Scoring writes model edits into it and reverses them
+    # again, and a run that died between those two leaves a tree whose
+    # contents nobody can vouch for — which is not a starting point for
+    # a measurement. Copying it back is seconds.
+    #
+    # The virtualenv beside it survives, which is what --workspace is
+    # actually saving: `provision` runs again, but against an
+    # environment whose packages are already present, so pip re-checks
+    # rather than downloads.
+    if tree.exists():
+        shutil.rmtree(tree)
     shutil.copytree(source, tree,
                     ignore=shutil.ignore_patterns(
                         "*.egg-info", "__pycache__", ".pytest_cache",
