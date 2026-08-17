@@ -107,16 +107,16 @@ def main() -> int:
     ap.add_argument("--no-gpu", action="store_true",
                     help="CPU only — for cells that do not need a GPU, so "
                          "they do not spend the weekly GPU quota")
-    ap.add_argument("--accelerator", default="nvidiaTeslaT4",
-                    help="Kaggle machine shape. The default is deliberate: "
-                         "left unset, a session can be given a Tesla P100, "
-                         "which is compute capability sm_60, and Kaggle's "
-                         "own PyTorch is built for sm_70 and up — so every "
-                         "kernel launch fails with "
-                         "cudaErrorNoKernelImageForDevice after the model "
-                         "has finished loading. A P100's 16 GB also has to "
-                         "offload part of a 7B fp16 model to the CPU. Pass "
-                         "an empty string to take whatever is offered.")
+    ap.add_argument("--accelerator", default="",
+                    help="Kaggle machine shape. Empty by default, and "
+                         "that is deliberate: the field is advisory and "
+                         "does not work — four pushes naming "
+                         "nvidiaTeslaT4, nvidiaTeslaT4x2 and a "
+                         "deliberately invalid value were all given a "
+                         "Tesla P100. What does work is choosing the "
+                         "accelerator in the notebook's own settings on "
+                         "kaggle.com, and sending nothing here leaves that "
+                         "choice alone. Naming a shape would overwrite it.")
     ap.add_argument("--dry-run", action="store_true",
                     help="build the directory and stop, without pushing")
     args = ap.parse_args()
