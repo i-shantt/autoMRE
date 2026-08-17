@@ -162,16 +162,46 @@ tok = AutoTokenizer.from_pretrained(MODEL)
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 
-# Force scaled-dot-product attention onto a backend whose memory is
-# linear in sequence length. Left to choose, it fell back to the *math*
-# backend and asked for 36.60 GiB on a 14.56 GiB card — which is
-# exactly 28 heads x 18702^2 x 4 bytes, the full attention matrix,
-# materialised. That is why halving the batch never helped: at batch 1
-# the request was unchanged, because the cost is quadratic in the
-# prompt, not linear in the batch.
+# Scaled-dot-product attention has to land on a backend whose memory is
+# linear in sequence length. Left alone it fell back to the *math*
+# backend and asked for 36.60 GiB on a 14.56 GiB card — exactly
+# 28 heads x 18702^2 x 4 bytes, the whole attention matrix. That is why
+# halving the batch never helped: the request did not move, because the
+# cost is quadratic in the prompt and independent of the batch.
+#
+# Asking torch directly (can_use_efficient_attention, with debug on)
+# gave the reason:
+#
+#   GQA  (28 query heads, 4 kv heads):  efficient False
+#     "both fused kernels require query, key and value to have the same
+#      num_heads"
+#   MHA  (kv repeated to 28):           efficient True
+#   flash: False either way — it needs sm80+, and a T4 is sm75.
+#
+# Qwen2.5 is a grouped-query model and transformers hands the narrow kv
+# tensors straight to sdpa, relying on broadcasting. The memory-efficient
+# kernel will not take that shape, so it silently drops to math. Making
+# transformers repeat the kv heads first costs a little memory and buys
+# the linear-memory kernel.
 torch.backends.cuda.enable_flash_sdp(True)
 torch.backends.cuda.enable_mem_efficient_sdp(True)
+# Left enabled there is no error, only a silent return to quadratic
+# memory — and the run would die hours in rather than here.
 torch.backends.cuda.enable_math_sdp(False)
+
+_patched = []
+for module_path in ("transformers.integrations.sdpa_attention",
+                    "transformers.modeling_utils"):
+    try:
+        import importlib
+        mod = importlib.import_module(module_path)
+    except ImportError:
+        continue
+    for name in ("use_gqa_in_sdpa", "_use_gqa_in_sdpa"):
+        if hasattr(mod, name):
+            setattr(mod, name, lambda *a, **k: False)
+            _patched.append(f"{module_path}.{name}")
+print("GQA broadcasting disabled in:", _patched or "NOTHING FOUND")
 
 n_gpu = torch.cuda.device_count()
 per_gpu = torch.cuda.get_device_properties(0).total_memory / 2**30
