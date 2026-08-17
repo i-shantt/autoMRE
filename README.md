@@ -1047,6 +1047,63 @@ python3 evaluation/gistify_runner.py \
 Budget a day. It clones five repositories at seven pinned commits and
 builds an environment per instance; sympy alone is 15 of the 23 hours.
 
+### Does a smaller repository help a model find the bug?
+
+That is the question the reduction is for, and it is answerable before
+any model is loaded. A repair model cannot read a 457,000-line
+repository, so something has to choose the few thousand lines it sees.
+The standard answer is BM25 over the issue text — SWE-bench's own
+published baseline. autoMRE proposes reducing first and retrieving from
+what survives.
+
+Three arms, one 16,000-token budget, one prompt, differing only in
+which tree the budget is filled from (`evaluation/stage3/`):
+
+| arm | gold file in context | mean recall |
+|---|:---:|---:|
+| `full_bm25` — BM25 over the original repository | 3 / 7 | 0.429 |
+| `reduced_bm25` — BM25 over the reduced tree | **7 / 7** | **0.929** |
+| `oracle` — the files the ground-truth patch edits | 5 / 7 | 0.714 |
+
+A model cannot fix what it was not shown, so this bounds every
+downstream score, and it costs no GPU to measure.
+
+The oracle arm scoring *below* the proposal is not a paradox, and it is
+the most interesting row in the table. **`sympy/core/numbers.py` is
+35,182 tokens — larger than the model's entire 32,768-token context
+window.** django's `sql/query.py` is 22,944. No retriever at any budget
+can put those files in front of the model, so the arm that consists of
+exactly the right files cannot be built for those two instances.
+Reduced, they are 11,512 and 2,749 tokens, and both fit. On pylint the
+whole reduced repository — all 42 files — fits inside the budget, where
+BM25 over the original showed 11 files of 2,187 and ranked the buggy one
+14th.
+
+Ranks are recorded alongside recall, because recall alone is decided at
+the budget boundary and would report something different at 20,000
+tokens.
+
+**What this cannot claim.** The reducer preserves what *reproduces* a
+failure, which is not the same as what is needed to *repair* it.
+django-17029's patch adds one line to `Apps.clear_cache`; in the reduced
+tree that method is `def clear_cache(self): pass` — sound, because the
+test asserts a cache was not cleared and an empty body fails it
+identically. A model reading that can name the method and still cannot
+write an edit that applies to the original file. Three of the seven
+instances have no ground-truth anchor line surviving at all. So the
+reduced arm is scored on **localisation**, and resolution is reported
+against the full-repository arm; neither stands in for the other.
+
+Two ways of recovering applicability were built and measured before
+being deleted. Ranking on the reduced tree while showing original text
+scored 0.190; showing the original only where it fits scored 0.333.
+Both are *worse than the baseline*, and for the same reason: the ranking
+was fine — the gold file lands at rank 1 to 5 — but four full-size
+original files fill 16,000 tokens before the fifth is reached. Showing
+original text and fitting the budget are in direct conflict, which is
+this project's own argument arriving from the other side. Neither arm
+was run; a negative result that consistent does not need a GPU.
+
 ### Where the idea came from
 
 [SWE-Hub](https://arxiv.org/abs/2603.00575) (2026) is a production system
