@@ -72,6 +72,25 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 print("GPUs:", torch.cuda.device_count(),
       [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())])
 
+# Kaggle hands out whichever GPU is free, and `machine_shape` in the
+# kernel metadata is advisory — two pushes asking for a T4 both got a
+# Tesla P100. A P100 is compute capability sm_60 and Kaggle's own
+# PyTorch is built for sm_70 and up, so the model downloads, loads,
+# prints "loaded", and only then does every generation die with
+# cudaErrorNoKernelImageForDevice.
+#
+# Check first. Fifteen gigabytes of download and ten minutes are worth
+# more than the two lines it takes to refuse a session that cannot run.
+supported = {int(a.removeprefix("sm_")) for a in torch.cuda.get_arch_list()
+             if a.startswith("sm_")}
+for i in range(torch.cuda.device_count()):
+    major, minor = torch.cuda.get_device_capability(i)
+    if major * 10 + minor not in supported:
+        raise SystemExit(
+            f"{torch.cuda.get_device_name(i)} is sm_{major}{minor}; this "
+            f"PyTorch supports {sorted(supported)}. Re-run to be given a "
+            f"different GPU — nothing here will work on this one.")
+
 tok = AutoTokenizer.from_pretrained(MODEL)
 model = AutoModelForCausalLM.from_pretrained(
     MODEL, torch_dtype=torch.float16, device_map="auto",
@@ -169,9 +188,19 @@ takes — which times the whole run. A synthetic prompt of the right size
 does that without needing `contexts.jsonl` to exist yet.
 
 ```python
-prompt = ("### synthetic.py\n```python\n"
-          + "".join(f"def f_{i}(x):\n    return x + {i}\n\n"
-                    for i in range(2200))
+# Sized against the tokenizer rather than guessed: 2,200 functions came
+# to 39,602 tokens, which is past the model's 32,768-token window, so
+# the check was testing something the run will never do. Grow until the
+# real prompt size is reached and stop there.
+TARGET = 17_500        # the largest prompt in contexts.jsonl, rounded up
+
+body, n_tok, i = "", 0, 0
+while n_tok < TARGET:
+    body += f"def f_{i}(x):\n    return x + {i}\n\n"
+    i += 1
+    if i % 100 == 0:
+        n_tok = len(tok(body)["input_ids"])
+prompt = ("### synthetic.py\n```python\n" + body
           + "```\nFix the bug and reply with a SEARCH/REPLACE edit.")
 n_tok = len(tok(prompt)["input_ids"])
 print(f"synthetic prompt: {n_tok} tokens")
