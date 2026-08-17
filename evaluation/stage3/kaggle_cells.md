@@ -6,13 +6,25 @@ the budget is spent, what the prompt says — is made by
 `build_contexts.py` on CPU and committed to the repository. This
 notebook loads that file and runs one model over it.
 
-Pushed with the kaggle MCP server:
+Two invocations, and the cell lists are not interchangeable:
 
-    kaggle_push_notebook(slug="automre-stage3", cells_file=".../kaggle_cells.md")
+    # the capacity check — run this first, it is two minutes
+    python3 evaluation/stage3/push_kernel.py \
+        --slug automre-stage-3-capacity-check \
+        --include "Cell 0,Cell 2,Cell 5"
 
-Results land in `/kaggle/working/generations.jsonl`, one line per
-(instance, arm, sample), written as they are produced so a session that
-runs out of time still returns everything up to that point.
+    # the run itself. Name the cells; do NOT push without --include,
+    # because Cell 5 is last in document order and would run the
+    # capacity check *after* the generations, where an out-of-memory
+    # would mark the whole kernel ERROR on top of work that succeeded.
+    python3 evaluation/stage3/push_kernel.py --slug automre-stage3 \
+        --include "Cell 0,Cell 1,Cell 2,Cell 3,Cell 4"
+
+Both take `--kaggle <path to the kaggle CLI>`. Results land in
+`/kaggle/working/generations.jsonl`, one line per (instance, arm,
+sample), written as they are produced so a session that runs out of
+time still returns everything up to that point, and fetched with
+`kaggle kernels output`.
 
 ## Cell 0 — configuration
 
