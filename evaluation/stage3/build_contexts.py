@@ -18,6 +18,40 @@ differ only in which tree the budget is filled from:
 lands near it, retrieval has stopped being the bottleneck, and knowing
 that is the difference between a result and a number.
 
+## What reduced_bm25 can and cannot be scored on
+
+It measures **localisation**, not repair, and that is structural rather
+than a weakness of the model. The reducer keeps whatever reproduces the
+failure, which is not the same as whatever is needed to fix it.
+django-17029's gold patch adds one line to `clear_cache`; in the
+reduced tree that method is
+
+    def clear_cache(self):
+        pass
+
+— sound, because the test asserts a cache was *not* cleared and an
+empty body fails it identically. A model reading that can name the
+method and still cannot write a SEARCH block that exists in the
+original file, nor reconstruct the body it was never shown. Across the
+seven instances, three have no gold-patch anchor line surviving at all.
+
+Two ways of recovering applicability were built and measured, and both
+are **worse than the baseline at the thing that bounds everything
+else** — getting the buggy file into the budget:
+
+  rank on reduced, show original text            0.190 mean recall
+  rank on reduced, original where it fits        0.333
+  full_bm25 (baseline)                           0.429
+  reduced_bm25                                   0.929
+
+The cause is the same both times, and it is not a tuning problem: the
+ranking is good — the gold file lands at rank 1 to 5 — but four
+full-size original files fill 16,000 tokens before the fifth is
+reached. Showing original text and fitting the budget are in direct
+conflict, which is the project's own thesis arriving from the other
+side. Neither arm is generated, because a negative result this
+consistent does not need a GPU to confirm.
+
 Note what is measurable here with no GPU at all: whether the file the
 ground-truth patch edits is even *present* in the context. A model
 cannot fix what it was not shown, so retrieval recall bounds every

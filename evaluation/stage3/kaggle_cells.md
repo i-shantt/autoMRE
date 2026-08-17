@@ -64,23 +64,48 @@ for c in contexts:
 ## Cell 2 — the model
 
 ```python
+# Which GPU this session got, asked *before* importing torch — because
+# the answer decides which torch to import.
+#
+# Kaggle hands out whichever accelerator is free and `machine_shape` is
+# advisory: three consecutive pushes asking for a T4 were all given a
+# Tesla P100, and so was a push naming a deliberately invalid shape. So
+# the P100 is not an unlucky roll to retry past, it is the machine.
+#
+# A P100 is compute capability sm_60. Kaggle's preinstalled PyTorch is
+# built for sm_70 and up, so on that card the model downloads, loads,
+# prints "loaded", and every generation then dies with
+# cudaErrorNoKernelImageForDevice — ten minutes in, with nothing saved.
+# PyTorch shipped sm_60 through the 2.5 series, so that is what a P100
+# session installs.
+cap = subprocess.run(
+    ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
+    capture_output=True, text=True).stdout.split()
+print("compute capability:", cap)
+
+if cap and float(cap[0]) < 7.0:
+    print(f"sm_{cap[0].replace('.', '')} — installing a PyTorch built "
+          f"for it (a few minutes)", flush=True)
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q",
+                    "torch==2.5.1", "torchvision==0.20.1",
+                    "--index-url", "https://download.pytorch.org/whl/cu121"],
+                   check=True)
+    # Pinned against that torch rather than upgraded past it: the newest
+    # transformers expects a newer torch than the one just installed.
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q",
+                    "transformers==4.49.0", "accelerate==1.4.0"], check=True)
+else:
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-U",
+                    "transformers", "accelerate"], check=False)
+
 import torch
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-U",
-                "transformers", "accelerate"], check=False)
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-print("GPUs:", torch.cuda.device_count(),
+print("torch", torch.__version__, "| GPUs:", torch.cuda.device_count(),
       [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())])
 
-# Kaggle hands out whichever GPU is free, and `machine_shape` in the
-# kernel metadata is advisory — two pushes asking for a T4 both got a
-# Tesla P100. A P100 is compute capability sm_60 and Kaggle's own
-# PyTorch is built for sm_70 and up, so the model downloads, loads,
-# prints "loaded", and only then does every generation die with
-# cudaErrorNoKernelImageForDevice.
-#
-# Check first. Fifteen gigabytes of download and ten minutes are worth
-# more than the two lines it takes to refuse a session that cannot run.
+# Belt and braces: if the install above did not produce a torch that can
+# actually target this card, say so now rather than after the download.
 supported = {int(a.removeprefix("sm_")) for a in torch.cuda.get_arch_list()
              if a.startswith("sm_")}
 for i in range(torch.cuda.device_count()):
@@ -89,7 +114,6 @@ for i in range(torch.cuda.device_count()):
         raise SystemExit(
             f"{torch.cuda.get_device_name(i)} is sm_{major}{minor}; this "
             f"PyTorch supports {sorted(supported)}. Re-run to be given a "
-            f"different GPU — nothing here will work on this one.")
 
 tok = AutoTokenizer.from_pretrained(MODEL)
 model = AutoModelForCausalLM.from_pretrained(
