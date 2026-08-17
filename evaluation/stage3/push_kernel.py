@@ -107,16 +107,20 @@ def main() -> int:
     ap.add_argument("--no-gpu", action="store_true",
                     help="CPU only — for cells that do not need a GPU, so "
                          "they do not spend the weekly GPU quota")
-    ap.add_argument("--accelerator", default="",
-                    help="Kaggle machine shape. Empty by default, and "
-                         "that is deliberate: the field is advisory and "
-                         "does not work — four pushes naming "
-                         "nvidiaTeslaT4, nvidiaTeslaT4x2 and a "
-                         "deliberately invalid value were all given a "
-                         "Tesla P100. What does work is choosing the "
-                         "accelerator in the notebook's own settings on "
-                         "kaggle.com, and sending nothing here leaves that "
-                         "choice alone. Naming a shape would overwrite it.")
+    ap.add_argument("--accelerator", default="NvidiaTeslaT4",
+                    help="Kaggle machine shape, and the capitalisation is "
+                         "the whole point. An unrecognised value is not "
+                         "rejected — it falls back to the generic `Gpu` "
+                         "shape, which is a Tesla P100 — so five pushes "
+                         "naming `nvidiaTeslaT4`, `nvidiaTeslaT4x2` and a "
+                         "deliberately invalid string all quietly got a "
+                         "P100, and the kernel's own metadata read back "
+                         "`machine_shape: Gpu` each time. The documented "
+                         "values are `NvidiaTeslaT4`, `NvidiaTeslaP100` "
+                         "and `Tpu1VmV38`. Setting the accelerator in the "
+                         "notebook's settings on kaggle.com does not "
+                         "survive an API push, which always writes this "
+                         "field.")
     ap.add_argument("--dry-run", action="store_true",
                     help="build the directory and stop, without pushing")
     args = ap.parse_args()

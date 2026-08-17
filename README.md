@@ -1095,6 +1095,22 @@ the repair is given, the only remaining variable is whether the model
 was shown the file to apply it to, which is precisely the variable under
 test.
 
+Both halves of the rig are checked against the ground truth before any
+model output is judged by them. Every instance must fail its target test
+before the fix and resolve with the ground-truth patch applied as a
+*diff*; then the same patch is re-expressed as SEARCH/REPLACE edits — the
+format the model is asked for — and put through the scorer as if it were
+a sample. All six score resolved, with the previously-passing set intact.
+A zero from the model is therefore the model's zero.
+
+That pre-flight has already earned itself once. SWE-bench exports
+PASS_TO_PASS comma-joined, so pylint's
+`test_csv_regex_comma_in_quantifier[foo,bar-expected1]` arrives truncated
+at the comma inside its own parameter. pytest cannot collect it, the
+whole batch errors, and *the ground-truth patch* read as breaking twelve
+previously-passing tests — which would have scored every arm as a
+regression. Uncollectable ids are now dropped and named.
+
 **What this cannot claim.** The reducer preserves what *reproduces* a
 failure, which is not the same as what is needed to *repair* it.
 django-17029's patch adds one line to `Apps.clear_cache`; in the reduced
