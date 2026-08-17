@@ -1083,6 +1083,18 @@ Ranks are recorded alongside recall, because recall alone is decided at
 the budget boundary and would report something different at 20,000
 tokens.
 
+One property of the instances is worth stating before the scores, since
+it cuts both ways. Checking every added line of each ground-truth patch
+against its issue text: **django-17029's entire fix appears verbatim in
+the issue** ("I propose to add: `self.get_swappable_settings_name.
+cache_clear()` line to def clear_cache"), and django-17084 and
+sympy-24661 leak one line each of six and twenty-one. The other three
+leak nothing. For a benchmark of *reasoning* that would be
+contamination. For this one it is close to a controlled condition: when
+the repair is given, the only remaining variable is whether the model
+was shown the file to apply it to, which is precisely the variable under
+test.
+
 **What this cannot claim.** The reducer preserves what *reproduces* a
 failure, which is not the same as what is needed to *repair* it.
 django-17029's patch adds one line to `Apps.clear_cache`; in the reduced
