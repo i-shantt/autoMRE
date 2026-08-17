@@ -467,6 +467,12 @@ def summarize(rows: List[dict], controls: Dict[str, dict]) -> dict:
         out["arms"][arm] = {
             "n_samples": len(got),
             "n_instances": len(by_inst),
+            # Named, not just counted. An arm can cover fewer instances
+            # than another for a legitimate reason — the oracle arm is
+            # empty wherever the gold file is too large to show whole —
+            # and a bare rate over a smaller set invites comparing two
+            # arms that were not asked the same questions.
+            "instances": sorted(by_inst),
             "parse_rate": sum(1 for r in got if not r["parse_error"]) / len(got),
             "apply_rate": sum(1 for r in got if r["applied"]) / len(got),
             "localization_rate": sum(

@@ -74,6 +74,23 @@ def test_a_file_too_big_to_fit_does_not_end_the_packing():
     assert ctx.included == ["small.py"]
 
 
+def test_a_gold_file_larger_than_the_budget_leaves_the_arm_empty():
+    """The case that makes the whole experiment worth running.
+
+    sympy's `core/numbers.py` is 35,182 tokens — not merely over the
+    16,000-token budget but over the model's entire 32,768-token window.
+    No retriever puts that file in front of the model. `pack` takes
+    whole files only, so it takes nothing, and the resulting empty
+    context has to be recognisable as an arm that could not be built
+    rather than scored as a model that answered badly.
+    """
+    files = {"gold.py": "word " * 5000}
+    costs = token_costs(files, _batch)
+    ctx = pack(["gold.py"], files, budget=1000, costs=costs)
+    assert ctx.included == []
+    assert ctx.tokens == 0
+
+
 def test_files_are_included_whole():
     files = {"a.py": "line1\nline2\nline3\n"}
     costs = token_costs(files, _batch)

@@ -41,6 +41,18 @@ if not os.path.exists("/kaggle/working/autoMRE"):
 
 CTX = "/kaggle/working/autoMRE/evaluation/stage3/contexts.jsonl"
 contexts = [json.loads(l) for l in open(CTX) if l.strip()]
+
+# An arm whose context came out empty is not a hard question, it is an
+# arm that could not be built: the gold file is larger than the budget,
+# so `pack` — which only takes whole files — took nothing. Generating
+# against it would spend GPU time producing answers to a prompt with no
+# repository in it, and score them as a model that failed.
+skipped = [c for c in contexts if c.get("context_empty")]
+contexts = [c for c in contexts if not c.get("context_empty")]
+for c in skipped:
+    print(f"skipping {c['instance_id']} {c['arm']}: no file fits whole "
+          f"(oversize gold: {', '.join(c['gold_files_oversize']) or 'none'})")
+
 print(f"{len(contexts)} contexts")
 for c in contexts:
     print(f"  {c['instance_id']:<24} {c['arm']:<13} "

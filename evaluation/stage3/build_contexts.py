@@ -353,6 +353,20 @@ def build(instance: dict, task: GistifyTask, reduced_root: Path,
                       token_costs(oracle_files, count_tokens_batch)),
                  {g: i for i, g in enumerate(sorted(oracle_files))}))
 
+    # A gold file can be too large to show *at all*: sympy's
+    # `core/numbers.py` is 35,182 tokens, which is not merely over this
+    # budget, it is over the whole 32,768-token context window of the
+    # model. No retriever and no budget puts that file in front of the
+    # model; only cutting it down does, and after reduction it is 11,512.
+    #
+    # That is the finding, but it also breaks the ceiling: the oracle arm
+    # for such an instance packs nothing and would be scored as a model
+    # that answered badly rather than an arm that cannot be built. So it
+    # is recorded per row and the scorer is expected to set it aside.
+    full_costs = token_costs({g: full[g] for g in gold if g in full},
+                             count_tokens_batch)
+    oversize = sorted(g for g, c in full_costs.items() if c > budget)
+
     out = []
     for arm, files, ctx, ranks in rows:
         hit = [g for g in gold if g in ctx.included]
@@ -372,14 +386,21 @@ def build(instance: dict, task: GistifyTask, reduced_root: Path,
             "gold_files_in_context": hit,
             "gold_file_ranks": ranks,
             "recall": len(hit) / len(gold) if gold else 0.0,
+            "gold_files_oversize": oversize,
+            "context_empty": not ctx.included,
         })
         best = min([r for r in ranks.values() if r is not None],
                    default=None)
+        note = ""
+        if not ctx.included:
+            note = ("   EMPTY — no file fits whole"
+                    + (f"; {len(oversize)} gold file(s) exceed the budget"
+                       if oversize else ""))
         print(f"  {arm:<13} {ctx.tokens:>6} tok  "
               f"{len(ctx.included):>3}/{ctx.considered} files  "
               f"recall {len(hit)}/{len(gold)}"
               f"   best gold rank "
-              f"{'-' if best is None else best + 1}", flush=True)
+              f"{'-' if best is None else best + 1}{note}", flush=True)
     return out
 
 
@@ -437,7 +458,16 @@ def main() -> int:
         print(f"{arm:<13} mean recall "
               f"{sum(r['recall'] for r in got) / len(got):.3f}  "
               f"gold file present in "
-              f"{sum(1 for r in got if r['recall'] > 0)}/{len(got)}")
+              f"{sum(1 for r in got if r['recall'] > 0)}/{len(got)}  "
+              f"empty context {sum(1 for r in got if r['context_empty'])}")
+
+    too_big = {r["instance_id"]: r["gold_files_oversize"]
+               for r in rows if r["gold_files_oversize"]}
+    if too_big:
+        print("\nGold files that do not fit the budget whole — no arm can "
+              "show these unreduced:")
+        for iid, names in sorted(too_big.items()):
+            print(f"  {iid:<24} {', '.join(names)}")
     return 0
 
 
