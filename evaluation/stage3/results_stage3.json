@@ -1,0 +1,1775 @@
+{
+  "controls": {
+    "django__django-17029": {
+      "target_test_fails_before_fix": true,
+      "ground_truth_patch_resolves": true,
+      "gold_output_tail": "",
+      "p2p_checked": true,
+      "p2p_ids_listed": 43,
+      "p2p_tests_run": 9,
+      "p2p_ids_not_collectable": [
+        "If single element in __path__, use it (in preference to __file__).",
+        "If the __path__ attr contains duplicate paths and there is no",
+        "If the __path__ attr is empty, use __file__ if set.",
+        "If the __path__ attr is empty and there is no __file__, raise.",
+        "If path set as class attr, overrides __path__ and __file__.",
+        "If the __path__ attr is length>1, use __file__ if set.",
+        "If the __path__ attr is length>1 and there is no __file__, raise.",
+        "If there is no __path__ attr, use __file__.",
+        "If there is no __path__ or __file__, raise ImproperlyConfigured.",
+        "If subclass sets path as class attr, no module attributes needed.",
+        "A Py3.3+ namespace package with multiple locations cannot be an app.",
+        "Multiple locations are ok only if app-config has explicit path.",
+        "A Py3.3+ namespace package can be an app if it has only one path.",
+        "Tests when INSTALLED_APPS contains an incorrect app config.",
+        "Makes a new model at runtime and ensures it goes into the right place.",
+        "Tests apps.get_app_config().",
+        "Tests apps.get_app_configs().",
+        "apps.get_containing_app_config() should raise an exception if",
+        "Tests apps.get_model().",
+        "App discovery should preserve stack traces. Regression test for #22920.",
+        "Tests apps.is_installed().",
+        "Tests apps.lazy_model_operation().",
+        "Test for behavior when two models clash in the app registry.",
+        "apps.get_models() raises an exception if apps.models_ready isn't True.",
+        "The models in the models.py file were loaded correctly.",
+        "Load an app that doesn't provide an AppConfig class.",
+        "Tests when INSTALLED_APPS contains an app that doesn't exist, either",
+        "Tests when INSTALLED_APPS contains a class that isn't an app config.",
+        "Load an app that provides an AppConfig class.",
+        "Tests the ready property of the main registry.",
+        "Only one main registry can exist.",
+        "Load an app that provides two AppConfig classes.",
+        "Load an app that provides two AppConfig classes, one being the default.",
+        "Load an app that provides two default AppConfig classes."
+      ],
+      "p2p_output_tail": "",
+      "f2p_ids_not_run": []
+    },
+    "django__django-17084": {
+      "target_test_fails_before_fix": true,
+      "ground_truth_patch_resolves": true,
+      "gold_output_tail": "",
+      "p2p_checked": true,
+      "p2p_ids_listed": 107,
+      "p2p_tests_run": 93,
+      "p2p_ids_not_collectable": [
+        "Random() is not included in the GROUP BY when used for ordering.",
+        "Subquery annotations are excluded from the GROUP BY if they are",
+        "Subquery annotations must be included in the GROUP BY if they use",
+        "Subquery annotations and external aliases are excluded from the GROUP",
+        ".dates() returns a distinct set of dates when applied to a",
+        "Filtering against an aggregate requires the usage of the HAVING clause.",
+        "Exists annotations are included in the GROUP BY if they are",
+        "Subquery annotations are included in the GROUP BY if they are",
+        "An annotation included in values() before an aggregate should be",
+        "An annotation not included in values() before an aggregate should be",
+        "Sum on a distinct() QuerySet should aggregate only the distinct items.",
+        "Subqueries do not needlessly contain ORDER BY, SELECT FOR UPDATE or",
+        "Aggregation over sliced queryset works correctly.",
+        "Doing exclude() on a foreign model after annotate() doesn't crash."
+      ],
+      "p2p_output_tail": "",
+      "f2p_ids_not_run": []
+    },
+    "django__django-17087": {
+      "target_test_fails_before_fix": true,
+      "ground_truth_patch_resolves": true,
+      "gold_output_tail": "",
+      "p2p_checked": true,
+      "p2p_ids_listed": 53,
+      "p2p_tests_run": 44,
+      "p2p_ids_not_collectable": [
+        "Test comments at top of file.",
+        "django.db.models shouldn't be imported if unused.",
+        "Ticket #22943: Test serialization of class-based validators, including",
+        "Make sure compiled regex can be serialized.",
+        "Ticket #22679: makemigrations generates invalid code for (an empty",
+        "A reference in a local scope can't be serialized.",
+        "An unbound method used within a class body can be serialized.",
+        "Tests serializing a simple migration.",
+        "#24155 - Tests ordering of imports."
+      ],
+      "p2p_output_tail": "",
+      "f2p_ids_not_run": []
+    },
+    "pylint-dev__pylint-8898": {
+      "target_test_fails_before_fix": true,
+      "ground_truth_patch_resolves": true,
+      "gold_output_tail": "",
+      "p2p_checked": true,
+      "p2p_ids_listed": 18,
+      "p2p_tests_run": 17,
+      "p2p_ids_not_collectable": [
+        "tests/config/test_config.py::test_csv_regex_comma_in_quantifier[foo,"
+      ],
+      "p2p_output_tail": "",
+      "f2p_ids_not_run": []
+    },
+    "sympy__sympy-24562": {
+      "target_test_fails_before_fix": true,
+      "ground_truth_patch_resolves": true,
+      "gold_output_tail": "",
+      "p2p_checked": true,
+      "p2p_ids_listed": 105,
+      "p2p_tests_run": 89,
+      "p2p_ids_not_collectable": [
+        "test_mod",
+        "test_divmod",
+        "test_Float",
+        "test_Infinity",
+        "test_NaN",
+        "test_powers",
+        "test_abs1",
+        "test_no_len",
+        "test_issue_3449",
+        "test_relational",
+        "test_zoo",
+        "test_as_content_primitive",
+        "test_latex",
+        "test_ComplexInfinity",
+        "test_NegativeInfinity",
+        "test_floordiv"
+      ],
+      "p2p_output_tail": "",
+      "f2p_ids_not_run": []
+    },
+    "sympy__sympy-24661": {
+      "target_test_fails_before_fix": true,
+      "ground_truth_patch_resolves": true,
+      "gold_output_tail": "",
+      "p2p_checked": false,
+      "p2p_ids_listed": 27,
+      "p2p_tests_run": 26,
+      "p2p_ids_not_collectable": [
+        "test_rationalize"
+      ],
+      "p2p_output_tail": "73\nsympy/parsing/tests/test_sympy_parser.py::test_issue_10773\nsympy/parsing/tests/test_sympy_parser.py::test_issue_10773\n  /private/tmp/claude-501/-Users-ishant-autoMRE/ed7e8b5b-44c2-4dc1-845e-41b09e07b433/scratchpad/smoke_ws/sympy__sympy-24661/sympy/parsing/sympy_parser.py:1179: DeprecationWarning: Call.__init__ got an unexpected keyword argument 'starargs'. Support for arbitrary keyword arguments is deprecated and will be removed in Python 3.15.\n    left = ast.Call(\n\nsympy/parsing/tests/test_sympy_parser.py::test_issue_10773\nsympy/parsing/tests/test_sympy_parser.py::test_issue_10773\nsympy/parsing/tests/test_sympy_parser.py::test_issue_10773\nsympy/parsing/tests/test_sympy_parser.py::test_issue_10773\n  /private/tmp/claude-501/-Users-ishant-autoMRE/ed7e8b5b-44c2-4dc1-845e-41b09e07b433/scratchpad/smoke_ws/sympy__sympy-24661/sympy/parsing/sympy_parser.py:1179: DeprecationWarning: Call.__init__ got an unexpected keyword argument 'kwargs'. Support for arbitrary keyword arguments is deprecated and will be removed in Python 3.15.\n    left = ast.Call(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n                                DO *NOT* COMMIT!                                \n=========================== short test summary info ============================\nFAILED sympy/parsing/tests/test_sympy_parser.py::test_sympy_parser -   File \"...\nFAILED sympy/parsing/tests/test_sympy_parser.py::test_factorial_fail -   File...\n2 failed, 24 passed, 184 warnings in 0.26s\n",
+      "f2p_ids_not_run": []
+    }
+  },
+  "summary": {
+    "scoreable_instances": [
+      "django__django-17029",
+      "django__django-17084",
+      "django__django-17087",
+      "pylint-dev__pylint-8898",
+      "sympy__sympy-24562",
+      "sympy__sympy-24661"
+    ],
+    "arms": {
+      "full_bm25": {
+        "n_samples": 30,
+        "n_instances": 6,
+        "instances": [
+          "django__django-17029",
+          "django__django-17084",
+          "django__django-17087",
+          "pylint-dev__pylint-8898",
+          "sympy__sympy-24562",
+          "sympy__sympy-24661"
+        ],
+        "parse_rate": 0.6666666666666666,
+        "apply_rate": 0.16666666666666666,
+        "localization_rate": 0.16666666666666666,
+        "resolve_at_1": 0.0,
+        "resolve_any": 0.0,
+        "localize_any": 0.3333333333333333,
+        "apply_status": {
+          "SEARCH block is ambiguous": 1,
+          "SEARCH block not found in file": 9,
+          "applied": 5,
+          "edit targets a test file: sympy/core/tests/test_numbers.py": 2,
+          "edit targets a test file: tests/postgres_tests/models.py": 2,
+          "no SEARCH/REPLACE block found": 10,
+          "no such file: path/to/file.py": 1
+        },
+        "edits_refused_as_test_files": 4
+      },
+      "oracle": {
+        "n_samples": 20,
+        "n_instances": 4,
+        "instances": [
+          "django__django-17029",
+          "django__django-17087",
+          "pylint-dev__pylint-8898",
+          "sympy__sympy-24661"
+        ],
+        "parse_rate": 0.45,
+        "apply_rate": 0.1,
+        "localization_rate": 0.35,
+        "resolve_at_1": 0.0,
+        "resolve_any": 0.0,
+        "localize_any": 0.75,
+        "apply_status": {
+          "SEARCH block not found in file": 5,
+          "applied": 2,
+          "no SEARCH/REPLACE block found": 11,
+          "no such file: appname/models.py": 1,
+          "no such file: path/to/file.py": 1
+        },
+        "edits_refused_as_test_files": 0
+      },
+      "reduced_bm25": {
+        "n_samples": 30,
+        "n_instances": 6,
+        "instances": [
+          "django__django-17029",
+          "django__django-17084",
+          "django__django-17087",
+          "pylint-dev__pylint-8898",
+          "sympy__sympy-24562",
+          "sympy__sympy-24661"
+        ],
+        "parse_rate": 0.43333333333333335,
+        "apply_rate": 0.0,
+        "localization_rate": 0.2,
+        "resolve_at_1": 0.0,
+        "resolve_any": 0.0,
+        "localize_any": 0.3333333333333333,
+        "apply_status": {
+          "SEARCH block is ambiguous": 1,
+          "SEARCH block not found in file": 11,
+          "edit targets a test file: tests/migrations/test_writer.py": 1,
+          "no SEARCH/REPLACE block found": 17
+        },
+        "edits_refused_as_test_files": 1
+      }
+    },
+    "uneven_coverage": {
+      "oracle": [
+        "django__django-17084",
+        "sympy__sympy-24562"
+      ]
+    },
+    "uneven_sample_counts": {
+      "full_bm25": 30,
+      "oracle": 20,
+      "reduced_bm25": 30
+    }
+  },
+  "rows": [
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "path/to/file.py"
+      ],
+      "gold_files": [
+        "django/apps/registry.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no such file: path/to/file.py",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17029",
+      "arm": "full_bm25",
+      "sample": 0
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "django/apps/registry.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17029",
+      "arm": "full_bm25",
+      "sample": 1
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/apps/registry.py"
+      ],
+      "gold_files": [
+        "django/apps/registry.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17029",
+      "arm": "full_bm25",
+      "sample": 2
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/apps/registry.py"
+      ],
+      "gold_files": [
+        "django/apps/registry.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": false,
+      "apply_status": "SEARCH block is ambiguous",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17029",
+      "arm": "full_bm25",
+      "sample": 3
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/apps/registry.py"
+      ],
+      "gold_files": [
+        "django/apps/registry.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17029",
+      "arm": "full_bm25",
+      "sample": 4
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "django/apps/registry.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17029",
+      "arm": "oracle",
+      "sample": 0
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "django/apps/registry.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17029",
+      "arm": "oracle",
+      "sample": 1
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "django/apps/registry.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17029",
+      "arm": "oracle",
+      "sample": 2
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/apps/registry.py"
+      ],
+      "gold_files": [
+        "django/apps/registry.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17029",
+      "arm": "oracle",
+      "sample": 3
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/apps/registry.py"
+      ],
+      "gold_files": [
+        "django/apps/registry.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17029",
+      "arm": "oracle",
+      "sample": 4
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/apps/registry.py"
+      ],
+      "gold_files": [
+        "django/apps/registry.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17029",
+      "arm": "reduced_bm25",
+      "sample": 0
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/apps/registry.py"
+      ],
+      "gold_files": [
+        "django/apps/registry.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17029",
+      "arm": "reduced_bm25",
+      "sample": 1
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/apps/registry.py"
+      ],
+      "gold_files": [
+        "django/apps/registry.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17029",
+      "arm": "reduced_bm25",
+      "sample": 2
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/apps/registry.py"
+      ],
+      "gold_files": [
+        "django/apps/registry.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17029",
+      "arm": "reduced_bm25",
+      "sample": 3
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/apps/registry.py"
+      ],
+      "gold_files": [
+        "django/apps/registry.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17029",
+      "arm": "reduced_bm25",
+      "sample": 4
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/db/models/aggregates.py"
+      ],
+      "gold_files": [
+        "django/db/models/sql/query.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17084",
+      "arm": "full_bm25",
+      "sample": 0
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/db/models/aggregates.py"
+      ],
+      "gold_files": [
+        "django/db/models/sql/query.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": true,
+      "apply_status": "applied",
+      "resolved": false,
+      "p2p_ok": null,
+      "output_tail": " in __exit__\n    raise dj_exc_value.with_traceback(traceback) from exc_value\n  File \"/private/tmp/claude-501/-Users-ishant-autoMRE/ed7e8b5b-44c2-4dc1-845e-41b09e07b433/scratchpad/smoke_ws/django__django-17084/django/db/backends/utils.py\", line 89, in _execute\n    return self.cursor.execute(sql, params)\n           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^\n  File \"/private/tmp/claude-501/-Users-ishant-autoMRE/ed7e8b5b-44c2-4dc1-845e-41b09e07b433/scratchpad/smoke_ws/django__django-17084/django/db/backends/sqlite3/base.py\", line 328, in execute\n    return super().execute(query, params)\n           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^\ndjango.db.utils.OperationalError: misuse of window function AVG()\n\n----------------------------------------------------------------------\nRan 1 test in 0.003s\n\nFAILED (errors=1)\n",
+      "instance_id": "django__django-17084",
+      "arm": "full_bm25",
+      "sample": 1
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/db/models/aggregates.py"
+      ],
+      "gold_files": [
+        "django/db/models/sql/query.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17084",
+      "arm": "full_bm25",
+      "sample": 2
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/db/models/aggregates.py"
+      ],
+      "gold_files": [
+        "django/db/models/sql/query.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17084",
+      "arm": "full_bm25",
+      "sample": 3
+    },
+    {
+      "n_edits": 40,
+      "parse_error": null,
+      "edited_files": [
+        "django/db/models/expressions.py",
+        "django/db/models/functions/__init__.py",
+        "django/db/models/functions/aggregates.py",
+        "django/db/models/functions/array.py",
+        "django/db/models/functions/binary.py",
+        "django/db/models/functions/bitwise.py",
+        "django/db/models/functions/boolean.py",
+        "django/db/models/functions/case.py",
+        "django/db/models/functions/casting.py",
+        "django/db/models/functions/comparison.py",
+        "django/db/models/functions/conditional.py",
+        "django/db/models/functions/conversions.py",
+        "django/db/models/functions/crypto.py",
+        "django/db/models/functions/dateextract.py",
+        "django/db/models/functions/datetime.py",
+        "django/db/models/functions/generic.py",
+        "django/db/models/functions/hash.py",
+        "django/db/models/functions/hashing.py",
+        "django/db/models/functions/json.py",
+        "django/db/models/functions/math.py",
+        "django/db/models/functions/miscellaneous.py",
+        "django/db/models/functions/mixins.py",
+        "django/db/models/functions/numeric.py",
+        "django/db/models/functions/other.py",
+        "django/db/models/functions/other/__init__.py",
+        "django/db/models/functions/path.py",
+        "django/db/models/functions/range.py",
+        "django/db/models/functions/regexp.py",
+        "django/db/models/functions/security.py",
+        "django/db/models/functions/serialization.py",
+        "django/db/models/functions/space.py",
+        "django/db/models/functions/string.py",
+        "django/db/models/functions/text.py",
+        "django/db/models/functions/timezone.py",
+        "django/db/models/functions/trigonometry.py",
+        "django/db/models/functions/uuid.py",
+        "django/db/models/functions/window.py",
+        "django/db/models/query.py",
+        "django/db/models/sql/compiler.py",
+        "django/db/models/sql/subqueries.py"
+      ],
+      "gold_files": [
+        "django/db/models/sql/query.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17084",
+      "arm": "full_bm25",
+      "sample": 4
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/db/models/expressions.py"
+      ],
+      "gold_files": [
+        "django/db/models/sql/query.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17084",
+      "arm": "reduced_bm25",
+      "sample": 0
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "django/db/models/sql/query.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17084",
+      "arm": "reduced_bm25",
+      "sample": 1
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/db/models/expressions.py"
+      ],
+      "gold_files": [
+        "django/db/models/sql/query.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17084",
+      "arm": "reduced_bm25",
+      "sample": 2
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "django/db/models/sql/query.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17084",
+      "arm": "reduced_bm25",
+      "sample": 3
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "django/db/models/sql/query.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17084",
+      "arm": "reduced_bm25",
+      "sample": 4
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "django/db/migrations/serializer.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17087",
+      "arm": "full_bm25",
+      "sample": 0
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "tests/postgres_tests/models.py"
+      ],
+      "gold_files": [
+        "django/db/migrations/serializer.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "edit targets a test file: tests/postgres_tests/models.py",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17087",
+      "arm": "full_bm25",
+      "sample": 1
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "django/db/migrations/serializer.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17087",
+      "arm": "full_bm25",
+      "sample": 2
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "django/db/migrations/serializer.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17087",
+      "arm": "full_bm25",
+      "sample": 3
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "tests/postgres_tests/models.py"
+      ],
+      "gold_files": [
+        "django/db/migrations/serializer.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "edit targets a test file: tests/postgres_tests/models.py",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17087",
+      "arm": "full_bm25",
+      "sample": 4
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "appname/models.py"
+      ],
+      "gold_files": [
+        "django/db/migrations/serializer.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no such file: appname/models.py",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17087",
+      "arm": "oracle",
+      "sample": 0
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "django/db/migrations/serializer.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17087",
+      "arm": "oracle",
+      "sample": 1
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "django/db/migrations/serializer.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17087",
+      "arm": "oracle",
+      "sample": 2
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "django/db/migrations/serializer.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17087",
+      "arm": "oracle",
+      "sample": 3
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "django/db/migrations/serializer.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17087",
+      "arm": "oracle",
+      "sample": 4
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "django/db/migrations/serializer.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17087",
+      "arm": "reduced_bm25",
+      "sample": 0
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/db/models/fields/__init__.py"
+      ],
+      "gold_files": [
+        "django/db/migrations/serializer.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "SEARCH block is ambiguous",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17087",
+      "arm": "reduced_bm25",
+      "sample": 1
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "django/db/migrations/serializer.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17087",
+      "arm": "reduced_bm25",
+      "sample": 2
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "tests/migrations/test_writer.py"
+      ],
+      "gold_files": [
+        "django/db/migrations/serializer.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "edit targets a test file: tests/migrations/test_writer.py",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17087",
+      "arm": "reduced_bm25",
+      "sample": 3
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "django/db/models/fields/__init__.py"
+      ],
+      "gold_files": [
+        "django/db/migrations/serializer.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "django__django-17087",
+      "arm": "reduced_bm25",
+      "sample": 4
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "pylint/config/arguments_manager.py"
+      ],
+      "gold_files": [
+        "pylint/config/argument.py",
+        "pylint/utils/__init__.py",
+        "pylint/utils/utils.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": true,
+      "apply_status": "applied",
+      "resolved": false,
+      "p2p_ok": null,
+      "output_tail": "__\n    _ArgumentsProvider.__init__(self, linter)\npylint/config/arguments_provider.py:32: in __init__\n    self._arguments_manager._register_options_provider(self)\npylint/config/arguments_manager.py:106: in _register_options_provider\n    self._add_arguments_to_parser(section, section_desc, argument)\npylint/config/arguments_manager.py:124: in _add_arguments_to_parser\n    self._add_parser_option(section_group, argument)\npylint/config/arguments_manager.py:143: in _add_parser_option\n    section_group.add_argument(\n/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/argparse.py:1471: in add_argument\n    action = action_class(**kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^\npylint/config/deprecation_actions.py:34: in __init__\n    assert old_names\n           ^^^^^^^^^\nE   AssertionError\n",
+      "instance_id": "pylint-dev__pylint-8898",
+      "arm": "full_bm25",
+      "sample": 0
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "pylint/config/arguments_manager.py"
+      ],
+      "gold_files": [
+        "pylint/config/argument.py",
+        "pylint/utils/__init__.py",
+        "pylint/utils/utils.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": true,
+      "apply_status": "applied",
+      "resolved": false,
+      "p2p_ok": null,
+      "output_tail": "recated-pragma,\\nuse-symbolic-message-instead,']\n\n    def _parse_configuration_file(self, arguments: list[str]) -> None:\n        \"\"\"Parse the arguments found in a configuration file into the namespace.\"\"\"\n        try:\n>           self.config, parsed_args = self._arg_parser.parse_known_args(\n                arguments, self.config, allow_nargs_in_flags=False\n            )\nE           TypeError: ArgumentParser.parse_known_args() got an unexpected keyword argument 'allow_nargs_in_flags'\n\npylint/config/arguments_manager.py:212: TypeError\n=========================== short test summary info ============================\nFAILED tests/config/test_config.py::test_csv_regex_error - TypeError: Argumen...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed in 0.04s\n",
+      "instance_id": "pylint-dev__pylint-8898",
+      "arm": "full_bm25",
+      "sample": 1
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "pylint/config/arguments_manager.py"
+      ],
+      "gold_files": [
+        "pylint/config/argument.py",
+        "pylint/utils/__init__.py",
+        "pylint/utils/utils.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "pylint-dev__pylint-8898",
+      "arm": "full_bm25",
+      "sample": 2
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "pylint/config/arguments_manager.py"
+      ],
+      "gold_files": [
+        "pylint/config/argument.py",
+        "pylint/utils/__init__.py",
+        "pylint/utils/utils.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": true,
+      "apply_status": "applied",
+      "resolved": false,
+      "p2p_ok": null,
+      "output_tail": "atchpad/smoke_ws/pylint-dev__pylint-8898/tests/conftest.py'.\ntests/conftest.py:15: in <module>\n    from pylint import checkers\npylint/checkers/__init__.py:47: in <module>\n    from pylint.checkers.base_checker import (\npylint/checkers/base_checker.py:16: in <module>\n    from pylint.config.arguments_provider import _ArgumentsProvider\npylint/config/arguments_provider.py:12: in <module>\n    from pylint.config.arguments_manager import _ArgumentsManager\nE     File \"/private/tmp/claude-501/-Users-ishant-autoMRE/ed7e8b5b-44c2-4dc1-845e-41b09e07b433/scratchpad/smoke_ws/pylint-dev__pylint-8898/pylint/config/arguments_manager.py\", line 166\nE       argument.flags = [flag.replace(',', '\\\\,') for flag in argument.flags]\nE   IndentationError: expected an indented block after 'elif' statement on line 165\n",
+      "instance_id": "pylint-dev__pylint-8898",
+      "arm": "full_bm25",
+      "sample": 3
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "pylint/config/arguments_manager.py"
+      ],
+      "gold_files": [
+        "pylint/config/argument.py",
+        "pylint/utils/__init__.py",
+        "pylint/utils/utils.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "pylint-dev__pylint-8898",
+      "arm": "full_bm25",
+      "sample": 4
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "pylint/config/argument.py",
+        "pylint/utils/__init__.py",
+        "pylint/utils/utils.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "pylint-dev__pylint-8898",
+      "arm": "oracle",
+      "sample": 0
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "pylint/config/argument.py"
+      ],
+      "gold_files": [
+        "pylint/config/argument.py",
+        "pylint/utils/__init__.py",
+        "pylint/utils/utils.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": true,
+      "apply_status": "applied",
+      "resolved": false,
+      "p2p_ok": null,
+      "output_tail": "add_flags & SRE_FLAG_VERBOSE)) and\n                               not (del_flags & SRE_FLAG_VERBOSE))\n                p = _parse_sub(source, state, sub_verbose, nested + 1)\n                if not source.match(\")\"):\n>                   raise source.error(\"missing ), unterminated subpattern\",\n                                       source.tell() - start)\nE                   re.PatternError: missing ), unterminated subpattern at position 0\n\n/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/re/_parser.py:865: PatternError\n=========================== short test summary info ============================\nFAILED tests/config/test_config.py::test_csv_regex_error - re.PatternError: m...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed in 0.08s\n",
+      "instance_id": "pylint-dev__pylint-8898",
+      "arm": "oracle",
+      "sample": 1
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "pylint/config/argument.py",
+        "pylint/utils/__init__.py",
+        "pylint/utils/utils.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "pylint-dev__pylint-8898",
+      "arm": "oracle",
+      "sample": 2
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "pylint/config/argument.py",
+        "pylint/utils/__init__.py",
+        "pylint/utils/utils.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "pylint-dev__pylint-8898",
+      "arm": "oracle",
+      "sample": 3
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "pylint/config/argument.py"
+      ],
+      "gold_files": [
+        "pylint/config/argument.py",
+        "pylint/utils/__init__.py",
+        "pylint/utils/utils.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "pylint-dev__pylint-8898",
+      "arm": "oracle",
+      "sample": 4
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "pylint/config/argument.py",
+        "pylint/utils/__init__.py",
+        "pylint/utils/utils.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "pylint-dev__pylint-8898",
+      "arm": "reduced_bm25",
+      "sample": 0
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "pylint/lint/base_options.py"
+      ],
+      "gold_files": [
+        "pylint/config/argument.py",
+        "pylint/utils/__init__.py",
+        "pylint/utils/utils.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "pylint-dev__pylint-8898",
+      "arm": "reduced_bm25",
+      "sample": 1
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "pylint/config/argument.py",
+        "pylint/utils/__init__.py",
+        "pylint/utils/utils.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "pylint-dev__pylint-8898",
+      "arm": "reduced_bm25",
+      "sample": 2
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "pylint/config/argument.py"
+      ],
+      "gold_files": [
+        "pylint/config/argument.py",
+        "pylint/utils/__init__.py",
+        "pylint/utils/utils.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "pylint-dev__pylint-8898",
+      "arm": "reduced_bm25",
+      "sample": 3
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "pylint/lint/base_options.py"
+      ],
+      "gold_files": [
+        "pylint/config/argument.py",
+        "pylint/utils/__init__.py",
+        "pylint/utils/utils.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "pylint-dev__pylint-8898",
+      "arm": "reduced_bm25",
+      "sample": 4
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/core/numbers.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24562",
+      "arm": "full_bm25",
+      "sample": 0
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "sympy/core/tests/test_numbers.py"
+      ],
+      "gold_files": [
+        "sympy/core/numbers.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "edit targets a test file: sympy/core/tests/test_numbers.py",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24562",
+      "arm": "full_bm25",
+      "sample": 1
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "sympy/core/tests/test_numbers.py"
+      ],
+      "gold_files": [
+        "sympy/core/numbers.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "edit targets a test file: sympy/core/tests/test_numbers.py",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24562",
+      "arm": "full_bm25",
+      "sample": 2
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/core/numbers.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24562",
+      "arm": "full_bm25",
+      "sample": 3
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/core/numbers.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24562",
+      "arm": "full_bm25",
+      "sample": 4
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/core/numbers.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24562",
+      "arm": "reduced_bm25",
+      "sample": 0
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/core/numbers.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24562",
+      "arm": "reduced_bm25",
+      "sample": 1
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/core/numbers.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24562",
+      "arm": "reduced_bm25",
+      "sample": 2
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/core/numbers.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24562",
+      "arm": "reduced_bm25",
+      "sample": 3
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/core/numbers.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24562",
+      "arm": "reduced_bm25",
+      "sample": 4
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "gold_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": true,
+      "apply_status": "applied",
+      "resolved": false,
+      "p2p_ok": null,
+      "output_tail": "ympy__sympy-24661/lib/python3.13/site-packages/mpmath/rational.py:4\n  /private/tmp/claude-501/-Users-ishant-autoMRE/ed7e8b5b-44c2-4dc1-845e-41b09e07b433/scratchpad/smoke_ws/venv-sympy__sympy-24661/lib/python3.13/site-packages/mpmath/rational.py:4: DeprecationWarning: the rational private module is deprecated\n    warnings.warn(\"the rational private module is deprecated\",\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n                                DO *NOT* COMMIT!                                \n=========================== short test summary info ============================\nFAILED sympy/parsing/tests/test_sympy_parser.py::test_issue_24288 - Assertion...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 4 warnings in 0.08s\n",
+      "instance_id": "sympy__sympy-24661",
+      "arm": "full_bm25",
+      "sample": 0
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24661",
+      "arm": "full_bm25",
+      "sample": 1
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24661",
+      "arm": "full_bm25",
+      "sample": 2
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24661",
+      "arm": "full_bm25",
+      "sample": 3
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "gold_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24661",
+      "arm": "full_bm25",
+      "sample": 4
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "gold_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24661",
+      "arm": "oracle",
+      "sample": 0
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "gold_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": false,
+      "apply_status": "SEARCH block not found in file",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24661",
+      "arm": "oracle",
+      "sample": 1
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "gold_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "located_gold_file": true,
+      "only_gold_files": true,
+      "applied": true,
+      "apply_status": "applied",
+      "resolved": false,
+      "p2p_ok": null,
+      "output_tail": "ympy__sympy-24661/lib/python3.13/site-packages/mpmath/rational.py:4\n  /private/tmp/claude-501/-Users-ishant-autoMRE/ed7e8b5b-44c2-4dc1-845e-41b09e07b433/scratchpad/smoke_ws/venv-sympy__sympy-24661/lib/python3.13/site-packages/mpmath/rational.py:4: DeprecationWarning: the rational private module is deprecated\n    warnings.warn(\"the rational private module is deprecated\",\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n                                DO *NOT* COMMIT!                                \n=========================== short test summary info ============================\nFAILED sympy/parsing/tests/test_sympy_parser.py::test_issue_24288 - Assertion...\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed, 4 warnings in 0.08s\n",
+      "instance_id": "sympy__sympy-24661",
+      "arm": "oracle",
+      "sample": 2
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24661",
+      "arm": "oracle",
+      "sample": 3
+    },
+    {
+      "n_edits": 1,
+      "parse_error": null,
+      "edited_files": [
+        "path/to/file.py"
+      ],
+      "gold_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no such file: path/to/file.py",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24661",
+      "arm": "oracle",
+      "sample": 4
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24661",
+      "arm": "reduced_bm25",
+      "sample": 0
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24661",
+      "arm": "reduced_bm25",
+      "sample": 1
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24661",
+      "arm": "reduced_bm25",
+      "sample": 2
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24661",
+      "arm": "reduced_bm25",
+      "sample": 3
+    },
+    {
+      "n_edits": 0,
+      "parse_error": "no SEARCH/REPLACE block found",
+      "edited_files": [],
+      "gold_files": [
+        "sympy/parsing/sympy_parser.py"
+      ],
+      "located_gold_file": false,
+      "only_gold_files": false,
+      "applied": false,
+      "apply_status": "no SEARCH/REPLACE block found",
+      "resolved": false,
+      "p2p_ok": null,
+      "instance_id": "sympy__sympy-24661",
+      "arm": "reduced_bm25",
+      "sample": 4
+    }
+  ],
+  "unknown_instances": [],
+  "elapsed_seconds": 142.01475310325623
+}

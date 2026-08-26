@@ -1137,6 +1137,49 @@ eighty generations on disk aim an edit at the exact `FAIL_TO_PASS` file,
 and one deleted assertion in any of them would have been published as a
 fix. Such an edit is now refused and counted per arm.
 
+### What the model did with it
+
+80 generations from Qwen2.5-Coder-7B-Instruct at fp16 — five samples per
+context — scored by execution, never by resemblance
+(`evaluation/stage3/results_stage3.json`). One instance is out on an
+environment fault, leaving six.
+
+| arm | instances | parses | edit applies | names a gold file | resolves |
+|---|:---:|---:|---:|:---:|:---:|
+| `full_bm25` | 6 | 0.67 | 0.17 | 2 / 6 | **0** |
+| `reduced_bm25` | 6 | 0.43 | 0.00 | 2 / 6 | **0** |
+| `oracle` | 4 | 0.45 | 0.10 | 3 / 4 | **0** |
+
+Nothing resolved, in any arm, on any sample. That is the result, and the
+rig is not what produced it: the same six ground-truth patches,
+re-expressed as SEARCH/REPLACE edits and pushed through the same parser,
+the same anchor rules and the same test command, score **6 of 6**
+(`--gold-as-edits`,
+`evaluation/stage3/results_gold_as_edits.json`). Parse 1.00, apply 1.00.
+A zero here is a 7-billion-parameter model's zero.
+
+**The retrieval advantage did not survive contact with the model.** The
+reduced arm puts the gold file in the context 7 times out of 7 against
+the full arm's 3, and both then name a gold file on 2 instances out of 6.
+Being shown the answer is not the same as choosing it — an obvious thing
+to say and a different thing to measure, and it is the honest limit of
+what the recall table above can be taken to mean.
+
+**The reduced arm's apply rate is 0.00, exactly as predicted.** Its
+SEARCH blocks are copied from a tree the reducer cut lines out of, so an
+anchor spanning a deletion cannot exist in the original file. Eleven of
+its thirty samples parse and then fail to apply for precisely that
+reason. This is not a bug in the scorer; it is the finding, and the next
+section is about it.
+
+**Five samples tried to edit the graded test.** Two of them applied —
+sympy-24562 twice, once rewriting `assert Rational('0.5', '100') ==
+Rational(1, 200)` to expect the buggy `Rational(1, 100100)` instead.
+Neither flipped a verdict, because the graded test asserts a loop of
+other equalities before that line and the bug breaks those too. So the
+hole was real and reachable, and on this data it happened not to pay.
+Such edits are now refused and counted rather than left to chance.
+
 **What this cannot claim.** The reducer preserves what *reproduces* a
 failure, which is not the same as what is needed to *repair* it.
 django-17029's patch adds one line to `Apps.clear_cache`; in the reduced
