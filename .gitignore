@@ -63,12 +63,13 @@ evaluation/comparison_results.json
 
 # Benchmark artifacts (cloned repos, external datasets)
 .gistify_repo_cache/
-# Concurrent reduction lanes each need their own clone cache: two lanes
-# sharing one raced on the same checkout and gave a lane the other's
-# commit.
+# One clone cache per concurrent lane: the shared cache holds a single
+# commit per repository, so two lanes sharing it fight over the checkout.
 .gistify_repo_cache_lane*/
-# Reduced trees and their run results: reproducible outputs, and the
-# trees alone are 15,000 files.
+# Reduced trees, and the per-task result JSON the concurrent driver
+# writes. Both regenerate from swebench_tasks.json, and the trees alone
+# are 15,000 files; the ones the experiment actually consumed are
+# committed under evaluation/stage3/ instead.
 evaluation/reduced/
 evaluation/stage3_runs/
 BugsInPy/
