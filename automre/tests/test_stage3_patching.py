@@ -83,7 +83,8 @@ def test_applies_and_leaves_the_rest_of_the_file_alone(tmp_path):
     text = (tmp_path / "pkg" / "widget.py").read_text()
     assert "self.w * self.h * self.d" in text
     assert "    def name(self):" in text
-    assert originals["pkg/widget.py"] == FILE
+    # bytes, because that is what rollback has to write back
+    assert originals["pkg/widget.py"] == FILE.encode("utf-8")
 
 
 def test_an_ambiguous_anchor_is_refused(tmp_path):
@@ -143,7 +144,7 @@ def test_ids_pytest_cannot_collect_are_dropped_not_fatal(tmp_path):
     and a rig that reports that scores every arm as a regression.
     """
     import sys as _sys
-    from score_patches import p2p_command
+    from score_patches import p2p_plan
 
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_x.py").write_text(
@@ -152,34 +153,36 @@ def test_ids_pytest_cannot_collect_are_dropped_not_fatal(tmp_path):
         "def test_p(a):\n    assert a\n\n"
         "def test_plain():\n    assert True\n")
 
-    command, dropped = p2p_command(
+    plan = p2p_plan(
         tmp_path,
         ["tests/test_x.py::test_plain",
          "tests/test_x.py::test_p[foo]",
          "tests/test_x.py::test_p[foo,"],
         _sys.executable, timeout=120)
 
-    assert dropped == ["tests/test_x.py::test_p[foo,"]
-    assert "tests/test_x.py::test_plain" in command
-    assert "tests/test_x.py::test_p[foo]" in command
+    assert plan.dropped == ["tests/test_x.py::test_p[foo,"]
+    assert plan.n_tests == 2
+    assert "tests/test_x.py::test_plain" in plan.commands[0]
+    assert "tests/test_x.py::test_p[foo]" in plan.commands[0]
 
 
 def test_django_labels_route_through_the_project_runner(tmp_path):
-    from score_patches import p2p_command
+    from score_patches import p2p_plan
 
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "runtests.py").write_text("")
 
-    command, dropped = p2p_command(
+    plan = p2p_plan(
         tmp_path,
         ["test_a (apps.tests.AppsTests.test_a)",
          "test_b (apps.tests.AppsTests.test_b)"],
         "python3", timeout=120)
 
-    assert command == ["python3", "tests/runtests.py",
-                       "apps.tests.AppsTests.test_a",
-                       "apps.tests.AppsTests.test_b", "-v", "0"]
-    assert dropped == []
+    assert plan.commands == [["python3", "tests/runtests.py",
+                              "apps.tests.AppsTests.test_a",
+                              "apps.tests.AppsTests.test_b", "-v", "0"]]
+    assert plan.n_tests == 2
+    assert plan.dropped == []
 
 
 def test_a_failure_in_a_later_file_rolls_back_the_earlier_one(tmp_path):
@@ -202,3 +205,180 @@ def test_a_failure_in_a_later_file_rolls_back_the_earlier_one(tmp_path):
     assert status == "SEARCH block not found in file"
     assert (tmp_path / "a.py").read_text() == "x = 1\n"
     assert (tmp_path / "b.py").read_text() == "y = 1\n"
+
+
+def test_labels_and_node_ids_both_survive(tmp_path):
+    """django-17084 lists 93 unittest labels beside 14 bare names.
+
+    One command could hold only one shape, so a single bare name
+    resolving through the index was enough to take the pytest branch and
+    drop all 93 labels — with nothing recorded to say they had gone. It
+    escaped notice only because none of that instance's bare names
+    happened to resolve.
+    """
+    import sys as _sys
+    from score_patches import p2p_plan
+
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "runtests.py").write_text("")
+    (tmp_path / "tests" / "test_x.py").write_text(
+        "def test_solo():\n    assert True\n")
+
+    plan = p2p_plan(
+        tmp_path,
+        ["test_a (apps.tests.AppsTests.test_a)", "test_solo"],
+        _sys.executable, timeout=120)
+
+    assert len(plan.commands) == 2
+    assert plan.commands[0][1] == "tests/runtests.py"
+    assert "tests/test_x.py::test_solo" in plan.commands[1]
+    assert plan.n_tests == 2
+
+
+def test_a_name_that_resolves_to_nothing_is_recorded(tmp_path):
+    """SWE-bench prints a unittest docstring in place of the method name.
+
+    34 of django-17029's 43 PASS_TO_PASS entries are prose. They matched
+    no test, were skipped by a bare `if len(found) == 1`, and never
+    reached the dropped list — so the control reported a clean
+    previously-passing set of 43 while running 9.
+    """
+    import sys as _sys
+    from score_patches import p2p_plan
+
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_x.py").write_text(
+        "def test_real():\n    assert True\n")
+
+    plan = p2p_plan(
+        tmp_path,
+        ["test_real", "If the __path__ attr is empty, use __file__."],
+        _sys.executable, timeout=120)
+
+    assert plan.dropped == ["If the __path__ attr is empty, use __file__."]
+    assert plan.n_tests == 1
+
+
+def test_labels_without_a_django_runner_are_dropped_not_run(tmp_path):
+    from score_patches import p2p_plan
+
+    plan = p2p_plan(tmp_path, ["test_a (pkg.tests.T.test_a)"],
+                    "python3", timeout=120)
+
+    assert plan.commands == []
+    assert plan.dropped == ["test_a (pkg.tests.T.test_a)"]
+
+
+# ------------------------------------------------- editing the graded test
+
+def test_an_edit_to_the_graded_test_file_is_refused(tmp_path):
+    """The prompt says not to edit tests; nothing made that true.
+
+    It also shows the failing test's source verbatim, so the anchor is
+    in front of the model. Three of the eighty generations on disk aim
+    an edit at the exact FAIL_TO_PASS file, and one deleted assertion
+    there would have been scored as a fix.
+    """
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_writer.py").write_text("assert x == 1\n")
+
+    edits, _ = parse_edits(
+        _block("tests/test_writer.py", "assert x == 1", "assert True"))
+    _, status = apply_edits(tmp_path, edits)
+
+    assert status.startswith("edit targets a test file")
+    assert (tmp_path / "tests" / "test_writer.py").read_text() == \
+        "assert x == 1\n"
+
+
+def test_a_refusal_rolls_back_the_edits_before_it(tmp_path):
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "a.py").write_text("x = 1\n")
+    (tmp_path / "pkg" / "test_a.py").write_text("y = 1\n")
+
+    edits, _ = parse_edits(_block("pkg/a.py", "x = 1", "x = 2")
+                           + _block("pkg/test_a.py", "y = 1", "y = 2"))
+    _, status = apply_edits(tmp_path, edits)
+
+    assert status.startswith("edit targets a test file")
+    assert (tmp_path / "pkg" / "a.py").read_text() == "x = 1\n"
+
+
+def test_a_source_file_beside_the_tests_is_still_a_test_file(tmp_path):
+    """django-17087's model reached for tests/postgres_tests/models.py.
+
+    No test_patch names it and its filename is innocent, but the graded
+    test imports it, so an edit there moves the number just the same.
+    """
+    from score_patches import is_test_path
+
+    assert is_test_path("tests/postgres_tests/models.py")
+    assert is_test_path("sympy/core/tests/test_numbers.py")
+    assert is_test_path("pkg/conftest.py")
+    assert not is_test_path("pylint/config/argument.py")
+    assert not is_test_path("django/db/models/fields/__init__.py")
+
+
+# --------------------------------------------------- bytes, not decoded text
+
+def test_a_rolled_back_file_keeps_its_own_line_endings(tmp_path):
+    """Restore used to write back what `read_text` had already changed.
+
+    Universal newlines turn CRLF into LF on the way in, so the "original"
+    written back on rollback was not the original. The tree is prepared
+    once and reused for all fifteen samples of an instance, so the damage
+    outlives the sample that caused it.
+    """
+    (tmp_path / "a.py").write_bytes(b"x = 1\r\ny = 2\r\n")
+
+    edits, _ = parse_edits(_block("a.py", "nope", "still nope"))
+    _, status = apply_edits(tmp_path, edits)
+
+    assert status == "SEARCH block not found in file"
+    assert (tmp_path / "a.py").read_bytes() == b"x = 1\r\ny = 2\r\n"
+
+
+def test_a_file_that_is_not_utf8_is_refused_not_mangled(tmp_path):
+    (tmp_path / "a.py").write_bytes(b"# \xff\xfe\nx = 1\n")
+
+    edits, _ = parse_edits(_block("a.py", "x = 1", "x = 2"))
+    _, status = apply_edits(tmp_path, edits)
+
+    assert status.startswith("file is not utf-8")
+    assert (tmp_path / "a.py").read_bytes() == b"# \xff\xfe\nx = 1\n"
+
+
+# ---------------------------------------------------- the positive control
+
+def test_the_gold_patch_survives_the_round_trip():
+    """The control the README claimed, as something that runs.
+
+    Every ground-truth patch is re-expressed in the model's own reply
+    format and read back by the same parser a sample goes through. If
+    this fails, a row of zeros cannot be blamed on the model.
+    """
+    import json as _json
+    from score_patches import gold_as_reply, is_test_path
+
+    path = _ROOT / "evaluation" / "stage3" / "instances.json"
+    for record in _json.loads(path.read_text())["instances"]:
+        reply, skipped = gold_as_reply(record["patch"])
+        edits, err = parse_edits(reply)
+        gold = {line[len("diff --git a/"):].split(" ")[0]
+                for line in record["patch"].splitlines()
+                if line.startswith("diff --git ")}
+
+        assert err is None, record["instance_id"]
+        assert skipped == [], record["instance_id"]
+        assert {e.path for e in edits} == gold, record["instance_id"]
+        # And the test-file guard must not refuse the right answer.
+        assert not any(is_test_path(e.path) for e in edits), \
+            record["instance_id"]
+
+
+def test_a_block_with_no_filename_is_its_own_failure():
+    edits, err = parse_edits(
+        "<<<<<<< SEARCH\nx = 1\n=======\nx = 2\n>>>>>>> REPLACE\n")
+
+    assert edits == []
+    assert err == "SEARCH/REPLACE block with no file path"
