@@ -355,10 +355,20 @@ def build(instance: dict, task: GistifyTask, reduced_root: Path,
     # ranking against an issue report, usually would not. The reduced arm
     # would then win for a reason that has nothing to do with reduction.
     #
-    # So the test files leave both universes, and the failing test's
-    # source is prepended to every arm instead. Every arm gets the
+    # So the *graded* test files leave both universes, and the failing
+    # test's source is prepended to every arm instead. Every arm gets the
     # reproduction, which is the premise of this whole project anyway:
     # you have a test that fails, and you want the bug fixed.
+    #
+    # What this does NOT do — and the earlier wording here claimed it
+    # did — is equalise the two universes generally. Only the files the
+    # test_patch names are popped. The full tree keeps every other test,
+    # fixture and doc module, and the reduced tree does not, because the
+    # reducer already deleted them for never executing. Measured over
+    # the committed contexts, 39% of the full arm's context slots go to
+    # test/doc files against 12% of the reduced arm's. That is reduction
+    # doing its job rather than an artefact, but it is part of the recall
+    # gap and the README says so.
     test_files = gold_files(instance["test_patch"])
     failing_test = extract_test_source(
         {n: t for n, t in full.items() if n in test_files}, f2p_ids)

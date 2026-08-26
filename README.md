@@ -1099,9 +1099,23 @@ Both halves of the rig are checked against the ground truth before any
 model output is judged by them. Every instance must fail its target test
 before the fix and resolve with the ground-truth patch applied as a
 *diff*; then the same patch is re-expressed as SEARCH/REPLACE edits — the
-format the model is asked for — and put through the scorer as if it were
-a sample. All six score resolved, with the previously-passing set intact.
-A zero from the model is therefore the model's zero.
+format the model is asked for — and pushed through the same parser, the
+same anchor rules and the same test command a sample gets. A zero from
+the model is therefore the model's zero, and not a broken parser.
+
+That second control is `--gold-as-edits`, and it is a flag rather than a
+paragraph on purpose: an unreproducible positive control is the one
+claim in a results section that most needs code behind it.
+
+```bash
+python3 evaluation/stage3/score_patches.py --gold-as-edits
+```
+
+An instance is scored only if **both** controls hold. Failing the first
+means the checkout is not the pre-fix commit; failing the second can
+leave the fix still applied to the tree, in which case every sample
+scored against it resolves and reads as a model that solved the instance
+fifteen times.
 
 That pre-flight has already earned itself once. SWE-bench exports
 PASS_TO_PASS comma-joined, so pylint's
@@ -1109,7 +1123,19 @@ PASS_TO_PASS comma-joined, so pylint's
 at the comma inside its own parameter. pytest cannot collect it, the
 whole batch errors, and *the ground-truth patch* read as breaking twelve
 previously-passing tests — which would have scored every arm as a
-regression. Uncollectable ids are now dropped and named.
+regression. Uncollectable ids are now dropped and named — as is every
+`PASS_TO_PASS` entry that resolves to no test at all, which is not a
+rare case: SWE-bench prints a unittest method's *docstring* in place of
+its name wherever it has one, so 34 of django-17029's 43 entries are
+English sentences. Those used to vanish silently, leaving the control
+reporting a clean set of 43 while running 9.
+
+The graded test files are also off limits to the model. The prompt has
+always said so; nothing enforced it, and the prompt shows the failing
+test's source verbatim, so the anchor is in front of it. Three of the
+eighty generations on disk aim an edit at the exact `FAIL_TO_PASS` file,
+and one deleted assertion in any of them would have been published as a
+fix. Such an edit is now refused and counted per arm.
 
 **What this cannot claim.** The reducer preserves what *reproduces* a
 failure, which is not the same as what is needed to *repair* it.
@@ -1121,6 +1147,18 @@ write an edit that applies to the original file. Three of the seven
 instances have no ground-truth anchor line surviving at all. So the
 reduced arm is scored on **localisation**, and resolution is reported
 against the full-repository arm; neither stands in for the other.
+
+**And the two file universes are not identical.** Only the files the
+`test_patch` names are removed from both trees. Everything else the
+reducer deleted for never executing — other tests, fixtures, doc
+modules — is still in the full tree and still competes for the budget:
+39% of the full arm's context slots hold a test or doc file, against 12%
+of the reduced arm's. pylint spends 5 of its 11 slots on
+`tests/regrtest_data/`, `doc/data/messages/` and the like, and scores
+recall 0. That is reduction doing exactly what it is for, so it is not
+subtracted out — but it means the 0.429-vs-0.929 gap is reduction
+*including* its removal of dead test and doc files, not reduction of
+live source alone.
 
 Two ways of recovering applicability were built and measured before
 being deleted. Ranking on the reduced tree while showing original text
