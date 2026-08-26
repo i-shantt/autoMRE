@@ -194,6 +194,10 @@ class GistifyResult:
     # UTF-8. Recorded so a lower reduction figure can be told apart from
     # a tree that was only partly examined.
     undecodable_files: int = 0
+    # Files whose per-file reduction raised and was caught. Non-zero
+    # means part of the tree was never reduced, which shows up in the
+    # headline number as ordinary difficulty unless something says so.
+    files_reduction_errored: int = 0
     # Queries killed by the per-query time limit. Recorded because a
     # handful of them can dominate a task's wall clock — on tomlkit, ten
     # queries out of 2,699 were 76% of all query time — while looking
@@ -555,6 +559,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
             time_seconds=elapsed,
             protected_lines=summary.protected_line_count,
             undecodable_files=len(summary.undecodable_files),
+            files_reduction_errored=len(summary.reduction_errors),
             timed_out_queries=summary.timed_out_queries,
             oracle_enabled=summary.oracle_enabled,
             oracle_skipped_attempts=summary.oracle_skipped_attempts,
@@ -739,10 +744,12 @@ def main() -> int:
         else:
             timeouts = (f" timeouts={r.timed_out_queries}"
                         if r.timed_out_queries else "")
+            errored = (f" REDUCTION-ERRORS={r.files_reduction_errored}"
+                       if r.files_reduction_errored else "")
             print(f"  {icon} files {r.original_files}->{r.final_files} "
                   f"lines {r.original_lines}->{r.final_lines} "
                   f"single_file={r.single_file_output} "
-                  f"queries={r.total_queries}{timeouts} "
+                  f"queries={r.total_queries}{timeouts}{errored} "
                   f"time={r.time_seconds:.1f}s")
         results.append(r)
         save()

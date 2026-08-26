@@ -117,3 +117,46 @@ def test_line_counting_survives_bytes_it_cannot_decode(tmp_path):
     path.write_bytes(LATIN1)
 
     assert MultiFileDebugger()._line_count(path) == 2
+
+
+# ------------------------------------------- a file the reducer could not do
+
+def test_a_caught_reduction_error_reaches_the_result():
+    """A caught exception that is only logged is invisible in the number.
+
+    Phase 4b wraps each file's reduction in `except Exception` so one bad
+    file cannot end a run over a hundred others. That is right, and it
+    means a run where *every* file raised looks exactly like a run that
+    reduced everything and found little to remove — same fidelity, same
+    shape, a much larger tree. An instrumented run with a wrapper bug did
+    exactly that and reported 58 queries and 10/10 without a single sign
+    that anything was wrong.
+    """
+    from multi_file.multi_file_debugger import MultiFileReductionResult
+
+    result = MultiFileReductionResult(
+        project_dir=Path("/tmp/x"),
+        original_file_count=3, final_file_count=3,
+        original_line_count=900, final_line_count=880,
+        reduction_errors={"pkg/a.py": "TypeError: 'PosixPath' object "
+                                      "cannot be interpreted as an integer"})
+
+    assert len(result.reduction_errors) == 1
+    assert "pkg/a.py" in result.reduction_errors
+
+
+def test_the_runner_row_carries_the_error_count():
+    import sys as _sys
+    from dataclasses import asdict
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent
+                            / "evaluation"))
+    from gistify_runner import GistifyResult
+
+    r = GistifyResult(task_id="t", execution_fidelity=1,
+                      original_files=3, final_files=3,
+                      original_lines=900, final_lines=880,
+                      single_file_output=False, total_queries=58,
+                      time_seconds=1.0, files_reduction_errored=3)
+
+    assert asdict(r)["files_reduction_errored"] == 3
+    assert GistifyResult(**asdict(r)) == r
