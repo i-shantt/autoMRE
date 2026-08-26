@@ -609,6 +609,10 @@ def main() -> int:
              "results_gistify_heuristic_no_coverage.json.")
     parser.add_argument("--no-coverage-prune", action="store_true",
         help="Disable coverage-based bulk pruning (ablation).")
+    parser.add_argument("--resume", action="store_true",
+        help="Keep the tasks already in --output and run only the rest. "
+             "Results are written after every task either way; this is "
+             "what makes that worth anything after a kill.")
     parser.add_argument("--save-reduced", default=None,
         help="Directory to keep each task's reduced tree in, one "
              "subdirectory per task. Without it the reduced tree is "
@@ -674,6 +678,48 @@ def main() -> int:
         print(f"[gistify] test interpreter: {bench_python}", flush=True)
 
     results: List[GistifyResult] = []
+    out_path = Path(args.output)
+    if args.resume and out_path.exists():
+        prior = json.loads(out_path.read_text())
+        results = [GistifyResult(**r) for r in prior.get("runs", [])]
+        done = {r.task_id for r in results}
+        tasks = [t for t in tasks if t.task_id not in done]
+        print(f"[gistify] resuming: {len(done)} task(s) already run, "
+              f"{len(tasks)} to go", flush=True)
+
+    all_task_ids = sorted({r.task_id for r in results}
+                          | {t.task_id for t in tasks})
+
+    def save() -> dict:
+        """Publish after every task, not after the run.
+
+        Ten tasks are 3.3 hours, and the results file used to be written
+        once at the end of them. A kill at task nine threw away all nine
+        — which is not hypothetical; it has cost this benchmark an
+        afternoon, and the workaround was a shell script outside the
+        repository that nobody else would know to use.
+        """
+        summary = summarize(results)
+        payload = {
+            "config": {
+                "prioritizer": "heuristic",
+                # Stamped so a partial run cannot later be mistaken for a
+                # full one. None means the whole manifest ran.
+                "only": args.only,
+                "task_ids": all_task_ids,
+                "coverage_prune": not args.no_coverage_prune,
+                "learned_oracle": args.use_learned_oracle,
+                "test_interpreter": bench_python,
+                "pinned_pytest": (None if (args.python or args.no_venv)
+                                  else _PINNED_PYTEST),
+                "complete": len(results) == len(all_task_ids),
+            },
+            "summary": summary,
+            "runs": [asdict(r) for r in results],
+        }
+        out_path.write_text(json.dumps(payload, indent=2))
+        return payload
+
     for task in tasks:
         print(f"[gistify] {task.task_id}", flush=True)
         r = run_task(task, timeout=args.timeout, verbose=args.verbose,
@@ -699,25 +745,9 @@ def main() -> int:
                   f"queries={r.total_queries}{timeouts} "
                   f"time={r.time_seconds:.1f}s")
         results.append(r)
+        save()
 
-    summary = summarize(results)
-    payload = {
-        "config": {
-            "prioritizer": "heuristic",
-            # Stamped so a partial run cannot later be mistaken for a
-            # full one. None means the whole manifest ran.
-            "only": args.only,
-            "task_ids": [t.task_id for t in tasks],
-            "coverage_prune": not args.no_coverage_prune,
-            "learned_oracle": args.use_learned_oracle,
-            "test_interpreter": bench_python,
-            "pinned_pytest": (None if (args.python or args.no_venv)
-                              else _PINNED_PYTEST),
-        },
-        "summary": summary,
-        "runs": [asdict(r) for r in results],
-    }
-    Path(args.output).write_text(json.dumps(payload, indent=2))
+    summary = save()["summary"]
     print()
     print("=" * 60)
     print(f"Results written to: {args.output}")

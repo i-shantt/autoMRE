@@ -97,3 +97,59 @@ def test_a_rerun_replaces_rather_than_merges(tmp_path):
 
     tree = dest_root / "acme__widget-1" / "tree"
     assert not (tree / "pkg" / "core.py").exists()
+
+
+# ------------------------------------------------------- surviving a kill
+
+def test_a_result_survives_the_json_round_trip():
+    """--resume rebuilds finished tasks out of the results file.
+
+    Ten tasks are 3.3 hours and the file used to be written once, at the
+    end. A kill at task nine threw away all nine, and the workaround was
+    a shell script outside the repository. Resuming is only worth
+    anything if a row read back is the row that was written, so that is
+    what this pins.
+    """
+    from dataclasses import asdict
+    from gistify_runner import GistifyResult
+
+    original = GistifyResult(
+        task_id="requests-super_len_partial",
+        execution_fidelity=1,
+        original_files=41, final_files=1,
+        original_lines=8992, final_lines=1166,
+        single_file_output=True,
+        total_queries=1184, timed_out_queries=3,
+        time_seconds=612.5, undecodable_files=2)
+
+    assert GistifyResult(**asdict(original)) == original
+
+
+def test_a_partial_run_says_so_in_its_config(tmp_path):
+    """A resumed-but-unfinished file must not read as a full run.
+
+    This benchmark has voided its own numbers seven times, and a results
+    file holding nine of ten tasks looks exactly like one holding ten
+    unless something in it says otherwise.
+    """
+    import json
+    from dataclasses import asdict
+    from gistify_runner import GistifyResult, summarize
+
+    done = [GistifyResult(task_id="a", execution_fidelity=1,
+                          original_files=1, final_files=1,
+                          original_lines=10, final_lines=5,
+                          single_file_output=True, total_queries=7,
+                          time_seconds=1.0)]
+    payload = {
+        "config": {"task_ids": ["a", "b"],
+                   "complete": len(done) == 2},
+        "summary": summarize(done),
+        "runs": [asdict(r) for r in done],
+    }
+    out = tmp_path / "results.json"
+    out.write_text(json.dumps(payload))
+
+    read_back = json.loads(out.read_text())
+    assert read_back["config"]["complete"] is False
+    assert {r["task_id"] for r in read_back["runs"]} == {"a"}
