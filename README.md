@@ -142,7 +142,7 @@ same path entry. From the repo root the module form fails with
 ### The rest
 
 ```bash
-# Tests (168, ~50 s). pytest comes from the [dev] extra above; it is not
+# Tests (169, ~50 s). pytest comes from the [dev] extra above; it is not
 # a runtime dependency, because autoMRE runs your reproduction command
 # in your environment rather than in its own.
 python3 -m pytest automre/tests/
