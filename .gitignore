@@ -88,3 +88,6 @@ web/frontend/.next/
 web/frontend/next-env.d.ts
 web/frontend/.vercel
 web/frontend/*.tsbuildinfo
+
+# Notebook directory push_kernel.py builds from kaggle_cells.md.
+evaluation/stage3/_kernel/

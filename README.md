@@ -1047,6 +1047,172 @@ python3 evaluation/gistify_runner.py \
 Budget a day. It clones five repositories at seven pinned commits and
 builds an environment per instance; sympy alone is 15 of the 23 hours.
 
+### Does a smaller repository help a model find the bug?
+
+That is the question the reduction is for, and it is answerable before
+any model is loaded. A repair model cannot read a 457,000-line
+repository, so something has to choose the few thousand lines it sees.
+The standard answer is BM25 over the issue text — SWE-bench's own
+published baseline. autoMRE proposes reducing first and retrieving from
+what survives.
+
+Three arms, one 16,000-token budget, one prompt, differing only in
+which tree the budget is filled from (`evaluation/stage3/`):
+
+| arm | gold file in context | mean recall |
+|---|:---:|---:|
+| `full_bm25` — BM25 over the original repository | 3 / 7 | 0.429 |
+| `reduced_bm25` — BM25 over the reduced tree | **7 / 7** | **0.929** |
+| `oracle` — the files the ground-truth patch edits | 5 / 7 | 0.714 |
+
+A model cannot fix what it was not shown, so this bounds every
+downstream score, and it costs no GPU to measure.
+
+The oracle arm scoring *below* the proposal is not a paradox, and it is
+the most interesting row in the table. **`sympy/core/numbers.py` is
+35,182 tokens — larger than the model's entire 32,768-token context
+window.** django's `sql/query.py` is 22,944. No retriever at any budget
+can put those files in front of the model, so the arm that consists of
+exactly the right files cannot be built for those two instances.
+Reduced, they are 11,512 and 2,749 tokens, and both fit. On pylint the
+whole reduced repository — all 42 files — fits inside the budget, where
+BM25 over the original showed 11 files of 2,187 and ranked the buggy one
+14th.
+
+Ranks are recorded alongside recall, because recall alone is decided at
+the budget boundary and would report something different at 20,000
+tokens.
+
+One property of the instances is worth stating before the scores, since
+it cuts both ways. Checking every added line of each ground-truth patch
+against its issue text: **django-17029's entire fix appears verbatim in
+the issue** ("I propose to add: `self.get_swappable_settings_name.
+cache_clear()` line to def clear_cache"), and django-17084 and
+sympy-24661 leak one line each of six and twenty-one. The other three
+leak nothing. For a benchmark of *reasoning* that would be
+contamination. For this one it is close to a controlled condition: when
+the repair is given, the only remaining variable is whether the model
+was shown the file to apply it to, which is precisely the variable under
+test.
+
+Both halves of the rig are checked against the ground truth before any
+model output is judged by them. Every instance must fail its target test
+before the fix and resolve with the ground-truth patch applied as a
+*diff*; then the same patch is re-expressed as SEARCH/REPLACE edits — the
+format the model is asked for — and pushed through the same parser, the
+same anchor rules and the same test command a sample gets. A zero from
+the model is therefore the model's zero, and not a broken parser.
+
+That second control is `--gold-as-edits`, and it is a flag rather than a
+paragraph on purpose: an unreproducible positive control is the one
+claim in a results section that most needs code behind it.
+
+```bash
+python3 evaluation/stage3/score_patches.py --gold-as-edits
+```
+
+An instance is scored only if **both** controls hold. Failing the first
+means the checkout is not the pre-fix commit; failing the second can
+leave the fix still applied to the tree, in which case every sample
+scored against it resolves and reads as a model that solved the instance
+fifteen times.
+
+That pre-flight has already earned itself once. SWE-bench exports
+PASS_TO_PASS comma-joined, so pylint's
+`test_csv_regex_comma_in_quantifier[foo,bar-expected1]` arrives truncated
+at the comma inside its own parameter. pytest cannot collect it, the
+whole batch errors, and *the ground-truth patch* read as breaking twelve
+previously-passing tests — which would have scored every arm as a
+regression. Uncollectable ids are now dropped and named — as is every
+`PASS_TO_PASS` entry that resolves to no test at all, which is not a
+rare case: SWE-bench prints a unittest method's *docstring* in place of
+its name wherever it has one, so 34 of django-17029's 43 entries are
+English sentences. Those used to vanish silently, leaving the control
+reporting a clean set of 43 while running 9.
+
+The graded test files are also off limits to the model. The prompt has
+always said so; nothing enforced it, and the prompt shows the failing
+test's source verbatim, so the anchor is in front of it. Three of the
+eighty generations on disk aim an edit at the exact `FAIL_TO_PASS` file,
+and one deleted assertion in any of them would have been published as a
+fix. Such an edit is now refused and counted per arm.
+
+### What the model did with it
+
+80 generations from Qwen2.5-Coder-7B-Instruct at fp16 — five samples per
+context — scored by execution, never by resemblance
+(`evaluation/stage3/results_stage3.json`). One instance is out on an
+environment fault, leaving six.
+
+| arm | instances | parses | edit applies | names a gold file | resolves |
+|---|:---:|---:|---:|:---:|:---:|
+| `full_bm25` | 6 | 0.67 | 0.17 | 2 / 6 | **0** |
+| `reduced_bm25` | 6 | 0.43 | 0.00 | 2 / 6 | **0** |
+| `oracle` | 4 | 0.45 | 0.10 | 3 / 4 | **0** |
+
+Nothing resolved, in any arm, on any sample. That is the result, and the
+rig is not what produced it: the same six ground-truth patches,
+re-expressed as SEARCH/REPLACE edits and pushed through the same parser,
+the same anchor rules and the same test command, score **6 of 6**
+(`--gold-as-edits`,
+`evaluation/stage3/results_gold_as_edits.json`). Parse 1.00, apply 1.00.
+A zero here is a 7-billion-parameter model's zero.
+
+**The retrieval advantage did not survive contact with the model.** The
+reduced arm puts the gold file in the context 7 times out of 7 against
+the full arm's 3, and both then name a gold file on 2 instances out of 6.
+Being shown the answer is not the same as choosing it — an obvious thing
+to say and a different thing to measure, and it is the honest limit of
+what the recall table above can be taken to mean.
+
+**The reduced arm's apply rate is 0.00, exactly as predicted.** Its
+SEARCH blocks are copied from a tree the reducer cut lines out of, so an
+anchor spanning a deletion cannot exist in the original file. Eleven of
+its thirty samples parse and then fail to apply for precisely that
+reason. This is not a bug in the scorer; it is the finding, and the next
+section is about it.
+
+**Five samples tried to edit the graded test.** Two of them applied —
+sympy-24562 twice, once rewriting `assert Rational('0.5', '100') ==
+Rational(1, 200)` to expect the buggy `Rational(1, 100100)` instead.
+Neither flipped a verdict, because the graded test asserts a loop of
+other equalities before that line and the bug breaks those too. So the
+hole was real and reachable, and on this data it happened not to pay.
+Such edits are now refused and counted rather than left to chance.
+
+**What this cannot claim.** The reducer preserves what *reproduces* a
+failure, which is not the same as what is needed to *repair* it.
+django-17029's patch adds one line to `Apps.clear_cache`; in the reduced
+tree that method is `def clear_cache(self): pass` — sound, because the
+test asserts a cache was not cleared and an empty body fails it
+identically. A model reading that can name the method and still cannot
+write an edit that applies to the original file. Three of the seven
+instances have no ground-truth anchor line surviving at all. So the
+reduced arm is scored on **localisation**, and resolution is reported
+against the full-repository arm; neither stands in for the other.
+
+**And the two file universes are not identical.** Only the files the
+`test_patch` names are removed from both trees. Everything else the
+reducer deleted for never executing — other tests, fixtures, doc
+modules — is still in the full tree and still competes for the budget:
+39% of the full arm's context slots hold a test or doc file, against 12%
+of the reduced arm's. pylint spends 5 of its 11 slots on
+`tests/regrtest_data/`, `doc/data/messages/` and the like, and scores
+recall 0. That is reduction doing exactly what it is for, so it is not
+subtracted out — but it means the 0.429-vs-0.929 gap is reduction
+*including* its removal of dead test and doc files, not reduction of
+live source alone.
+
+Two ways of recovering applicability were built and measured before
+being deleted. Ranking on the reduced tree while showing original text
+scored 0.190; showing the original only where it fits scored 0.333.
+Both are *worse than the baseline*, and for the same reason: the ranking
+was fine — the gold file lands at rank 1 to 5 — but four full-size
+original files fill 16,000 tokens before the fifth is reached. Showing
+original text and fitting the budget are in direct conflict, which is
+this project's own argument arriving from the other side. Neither arm
+was run; a negative result that consistent does not need a GPU.
+
 ### Where the idea came from
 
 [SWE-Hub](https://arxiv.org/abs/2603.00575) (2026) is a production system
@@ -1097,6 +1263,19 @@ evaluation/
                             with its reason
   cloud_bench.py            same harness for Colab/Kaggle, plus the
                             --ablation coverage-prune A/B
+  swebench_tasks.json       the seven SWE-bench Verified manifests the
+                            gate accepted, plus results_swebench.json
+  stage3/                   does a smaller repository help a model find
+                            the bug
+    build_contexts.py       BM25, budgeting, and the three arms
+    instances.json          the seven full SWE-bench records
+    contexts.jsonl          one row per (instance, arm): the prompt and
+                            what retrieval put in it
+    controls.json           which instances are scoreable, and why the
+                            one that is not was excluded
+    score_patches.py        parse edits, apply, run F2P then P2P
+    kaggle_cells.md         the generation notebook, as reviewable text
+    push_kernel.py          turns that into a notebook and pushes it
   results_gistify_*.json    results per configuration
 notebooks/
   automre_benchmark.ipynb   driver for cloud_bench.py on a hosted runtime

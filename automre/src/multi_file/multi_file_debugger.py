@@ -75,6 +75,15 @@ class MultiFileReductionResult:
     # .py files reached through a symlink that leaves the project, and so
     # never candidates: the reducer's remit is the directory it was given.
     outside_project_files: List[Path] = field(default_factory=list)
+    # Files whose per-file reduction raised. The exception is caught so
+    # one bad file cannot end a run over a hundred others, but a caught
+    # exception that is only logged is invisible in the result — and a
+    # run where every file raised looks exactly like a run that reduced
+    # everything and found little to remove. That is not hypothetical:
+    # an instrumented run with a wrapper bug did precisely that, and
+    # reported 58 queries, 10/10 fidelity and a tree three times too
+    # large without a single sign that anything had gone wrong.
+    reduction_errors: Dict[str, str] = field(default_factory=dict)
     # Oracle bookkeeping — zero when it isn't in use.
     oracle_enabled: bool = False
     oracle_skipped_attempts: int = 0   # Phase 4b removals never tried
@@ -432,6 +441,7 @@ class MultiFileDebugger:
         per_file_reduction: Dict[Path, tuple] = {}
         oracle_skipped_attempts = 0
         oracle_held_back_files = 0
+        reduction_errors: Dict[str, str] = {}
         final_survivors = [f for f in analysis.all_files if f.exists()]
         # Prioritize larger files first so big wins land early.
         final_survivors.sort(key=self._largest_first)
@@ -558,8 +568,10 @@ class MultiFileDebugger:
                 # revisited, so leaving it out would stall the reported
                 # progress on a file nothing is working on.
                 work_done += original_lines
-                self._log(f"  {f.relative_to(project_dir)}: reduction "
-                          f"errored ({exc}); leaving as-is")
+                rel = str(f.relative_to(project_dir))
+                reduction_errors[rel] = f"{type(exc).__name__}: {exc}"[:200]
+                self._log(f"  {rel}: reduction errored ({exc}); "
+                          "leaving as-is")
                 continue
 
             work_done += original_lines
@@ -620,6 +632,7 @@ class MultiFileDebugger:
             oracle_enabled=self.oracle is not None,
             oracle_skipped_attempts=oracle_skipped_attempts,
             oracle_held_back_files=oracle_held_back_files,
+            reduction_errors=reduction_errors,
         )
 
     # ---------------------------------------------------------- utils

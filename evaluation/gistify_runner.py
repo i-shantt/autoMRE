@@ -194,6 +194,10 @@ class GistifyResult:
     # UTF-8. Recorded so a lower reduction figure can be told apart from
     # a tree that was only partly examined.
     undecodable_files: int = 0
+    # Files whose per-file reduction raised and was caught. Non-zero
+    # means part of the tree was never reduced, which shows up in the
+    # headline number as ordinary difficulty unless something says so.
+    files_reduction_errored: int = 0
     # Queries killed by the per-query time limit. Recorded because a
     # handful of them can dominate a task's wall clock — on tomlkit, ten
     # queries out of 2,699 were 76% of all query time — while looking
@@ -370,6 +374,38 @@ def _count_files_and_lines(root: Path) -> tuple:
     return len(files), total_lines
 
 
+def _save_reduced(work_dir: Path, dest_root: Path, task: GistifyTask,
+                  orig_lines: int, final_lines: int) -> None:
+    """Keep the reduced tree, with enough metadata to rebuild its input.
+
+    Layout is one directory per task — `tree/` beside `meta.json` — so
+    two tasks running at once never write to the same path.
+
+    The original tree is deliberately *not* copied. `_ensure_repo` builds
+    it from `repo` at `commit` plus `test_patch`, all three of which are
+    recorded here, and a saved copy would be three gigabytes of
+    something git can already produce byte-for-byte.
+    """
+    dest = dest_root / task.task_id
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True)
+    shutil.copytree(work_dir, dest / "tree",
+                    ignore=shutil.ignore_patterns(
+                        ".git", "*.egg-info", "__pycache__",
+                        ".pytest_cache", "build", "dist"))
+    (dest / "meta.json").write_text(json.dumps({
+        "task_id": task.task_id,
+        "repo": task.repo,
+        "commit": task.commit,
+        "test_command": task.test_command,
+        "test_id": task.test_id,
+        "original_lines": orig_lines,
+        "final_lines": final_lines,
+    }, indent=2))
+    print(f"  → reduced tree saved to {dest}", flush=True)
+
+
 # ------------------------------------------------------------ per-task
 
 def run_task(task: GistifyTask, timeout: int = 120,
@@ -379,12 +415,14 @@ def run_task(task: GistifyTask, timeout: int = 120,
              allow_unhealthy_baseline: bool = False,
              use_learned_oracle: bool = False,
              oracle_model_path: Optional[str] = None,
-             provision_env: bool = False) -> GistifyResult:
+             provision_env: bool = False,
+             cache_dir: Optional[Path] = None,
+             save_reduced_to: Optional[Path] = None) -> GistifyResult:
     python = python or sys.executable
     test_command = _resolve_test_command(task.test_command, python)
     print(f"  → cloning/preparing {task.task_id}...", flush=True)
     try:
-        source_dir = _ensure_repo(task, verbose=verbose)
+        source_dir = _ensure_repo(task, verbose=verbose, cache_dir=cache_dir)
         # A shared environment cannot hold twelve repositories at twelve
         # pinned commits; their dependency sets conflict. Ingested tasks
         # get one environment each, built beside the work copy below, so
@@ -501,6 +539,14 @@ def run_task(task: GistifyTask, timeout: int = 120,
             work_dir, test_command,
             baseline_out, baseline_rc, timeout=timeout)
 
+        # The reduced tree is the harness's actual product, and until now
+        # it died with the temp directory — every run measured it and
+        # then threw it away. Copied after the fidelity check so what is
+        # kept is the tree that was checked, not one query earlier.
+        if save_reduced_to is not None:
+            _save_reduced(work_dir, Path(save_reduced_to), task,
+                          orig_lines=orig_lines, final_lines=final_lines)
+
         return GistifyResult(
             task_id=task.task_id,
             execution_fidelity=1 if fidelity else 0,
@@ -513,6 +559,7 @@ def run_task(task: GistifyTask, timeout: int = 120,
             time_seconds=elapsed,
             protected_lines=summary.protected_line_count,
             undecodable_files=len(summary.undecodable_files),
+            files_reduction_errored=len(summary.reduction_errors),
             timed_out_queries=summary.timed_out_queries,
             oracle_enabled=summary.oracle_enabled,
             oracle_skipped_attempts=summary.oracle_skipped_attempts,
@@ -567,6 +614,19 @@ def main() -> int:
              "results_gistify_heuristic_no_coverage.json.")
     parser.add_argument("--no-coverage-prune", action="store_true",
         help="Disable coverage-based bulk pruning (ablation).")
+    parser.add_argument("--resume", action="store_true",
+        help="Keep the tasks already in --output and run only the rest. "
+             "Results are written after every task either way; this is "
+             "what makes that worth anything after a kill.")
+    parser.add_argument("--save-reduced", default=None,
+        help="Directory to keep each task's reduced tree in, one "
+             "subdirectory per task. Without it the reduced tree is "
+             "deleted with the temp directory once it has been measured.")
+    parser.add_argument("--cache-dir", default=None,
+        help="Clone repositories here instead of the shared "
+             ".gistify_repo_cache. Two runs sharing a cache fight over "
+             "the checkout — the cache holds one commit per repository "
+             "— so concurrent runs need one each.")
     parser.add_argument("--python", default=None,
         help="Interpreter to run the target tests with. Defaults to a "
              f"pinned benchmark venv ({_PINNED_PYTEST}).")
@@ -623,6 +683,48 @@ def main() -> int:
         print(f"[gistify] test interpreter: {bench_python}", flush=True)
 
     results: List[GistifyResult] = []
+    out_path = Path(args.output)
+    if args.resume and out_path.exists():
+        prior = json.loads(out_path.read_text())
+        results = [GistifyResult(**r) for r in prior.get("runs", [])]
+        done = {r.task_id for r in results}
+        tasks = [t for t in tasks if t.task_id not in done]
+        print(f"[gistify] resuming: {len(done)} task(s) already run, "
+              f"{len(tasks)} to go", flush=True)
+
+    all_task_ids = sorted({r.task_id for r in results}
+                          | {t.task_id for t in tasks})
+
+    def save() -> dict:
+        """Publish after every task, not after the run.
+
+        Ten tasks are 3.3 hours, and the results file used to be written
+        once at the end of them. A kill at task nine threw away all nine
+        — which is not hypothetical; it has cost this benchmark an
+        afternoon, and the workaround was a shell script outside the
+        repository that nobody else would know to use.
+        """
+        summary = summarize(results)
+        payload = {
+            "config": {
+                "prioritizer": "heuristic",
+                # Stamped so a partial run cannot later be mistaken for a
+                # full one. None means the whole manifest ran.
+                "only": args.only,
+                "task_ids": all_task_ids,
+                "coverage_prune": not args.no_coverage_prune,
+                "learned_oracle": args.use_learned_oracle,
+                "test_interpreter": bench_python,
+                "pinned_pytest": (None if (args.python or args.no_venv)
+                                  else _PINNED_PYTEST),
+                "complete": len(results) == len(all_task_ids),
+            },
+            "summary": summary,
+            "runs": [asdict(r) for r in results],
+        }
+        out_path.write_text(json.dumps(payload, indent=2))
+        return payload
+
     for task in tasks:
         print(f"[gistify] {task.task_id}", flush=True)
         r = run_task(task, timeout=args.timeout, verbose=args.verbose,
@@ -631,38 +733,28 @@ def main() -> int:
                      allow_unhealthy_baseline=args.allow_unhealthy_baseline,
                      use_learned_oracle=args.use_learned_oracle,
                      oracle_model_path=args.oracle_model,
-                     provision_env=args.provision_per_task)
+                     provision_env=args.provision_per_task,
+                     cache_dir=(Path(args.cache_dir)
+                                if args.cache_dir else None),
+                     save_reduced_to=(Path(args.save_reduced)
+                                      if args.save_reduced else None))
         icon = "PASS" if r.execution_fidelity else "FAIL"
         if r.error:
             print(f"  {icon} error: {r.error}")
         else:
             timeouts = (f" timeouts={r.timed_out_queries}"
                         if r.timed_out_queries else "")
+            errored = (f" REDUCTION-ERRORS={r.files_reduction_errored}"
+                       if r.files_reduction_errored else "")
             print(f"  {icon} files {r.original_files}->{r.final_files} "
                   f"lines {r.original_lines}->{r.final_lines} "
                   f"single_file={r.single_file_output} "
-                  f"queries={r.total_queries}{timeouts} "
+                  f"queries={r.total_queries}{timeouts}{errored} "
                   f"time={r.time_seconds:.1f}s")
         results.append(r)
+        save()
 
-    summary = summarize(results)
-    payload = {
-        "config": {
-            "prioritizer": "heuristic",
-            # Stamped so a partial run cannot later be mistaken for a
-            # full one. None means the whole manifest ran.
-            "only": args.only,
-            "task_ids": [t.task_id for t in tasks],
-            "coverage_prune": not args.no_coverage_prune,
-            "learned_oracle": args.use_learned_oracle,
-            "test_interpreter": bench_python,
-            "pinned_pytest": (None if (args.python or args.no_venv)
-                              else _PINNED_PYTEST),
-        },
-        "summary": summary,
-        "runs": [asdict(r) for r in results],
-    }
-    Path(args.output).write_text(json.dumps(payload, indent=2))
+    summary = save()["summary"]
     print()
     print("=" * 60)
     print(f"Results written to: {args.output}")
