@@ -2,7 +2,7 @@
 # autoMRE: one command to see the tool work on this machine.
 #
 # Runs the test suite and reduces a bundled example project, which
-# together take about half a minute. It does not reproduce the benchmark
+# together take about a minute. It does not reproduce the benchmark
 # in README.md — that is ten tasks against three cloned repositories and
 # takes hours — it prints the command for it instead.
 #
@@ -93,11 +93,11 @@ show_benchmark() {
     cat <<'EOF'
   The results table in README.md is ten pytest tasks across requests,
   flask and tomlkit. It clones those repositories, provisions a pinned
-  virtualenv, and took 3.3 hours on an M4 MacBook Air:
+  virtualenv, and took 3.2 hours on an M4 MacBook Air:
 
       python3 evaluation/gistify_runner.py
 
-  One repository's worth (requests was 15 minutes of that):
+  One repository's worth (requests is four of the ten tasks):
 
       python3 evaluation/gistify_runner.py --only requests
 

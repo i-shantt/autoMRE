@@ -88,7 +88,7 @@ below](#the-halving-descent).
 
 ## Try it
 
-### In half a minute
+### In about a minute
 
 ```bash
 pip install -e ".[dev]"      # plain `pip install -e .` if you don't want the tests
@@ -96,9 +96,13 @@ pip install -e ".[dev]"      # plain `pip install -e .` if you don't want the te
 ```
 
 Runs the test suite, then reduces a bundled four-file example down to
-the six lines that still raise the same `TypeError`. It does not
-reproduce the benchmark below — that clones three repositories and takes
-hours — it prints the command for it.
+the six lines that still raise the same `TypeError`. Measured from a
+clean clone on an M4 MacBook Air: 89 seconds the first time, 52 after
+that. Nearly all of it is the test suite, and the difference is one test
+that provisions a virtualenv and so downloads a pinned pytest once.
+
+It does not reproduce the benchmark below — that clones three
+repositories and takes hours — it prints the command for it.
 
 ### In a browser
 
@@ -138,15 +142,20 @@ same path entry. From the repo root the module form fails with
 ### The rest
 
 ```bash
-# Tests (127, ~55 s). pytest comes from the [dev] extra above; it is not
+# Tests (168, ~50 s). pytest comes from the [dev] extra above; it is not
 # a runtime dependency, because autoMRE runs your reproduction command
 # in your environment rather than in its own.
 python3 -m pytest automre/tests/
 
-# Full benchmark. Provisions a pinned venv on first run.
+# Full benchmark: ten tasks, ~3.2 hours, provisions a pinned venv on
+# the first run. Results are written after every task, so --resume
+# picks up where a kill left off rather than starting over.
 python3 evaluation/gistify_runner.py
+python3 evaluation/gistify_runner.py --resume
 
-# Or one repo's worth
+# Or one repo's worth. requests is four tasks: 13 minutes on the machine
+# this was last checked on, 23 in the session the table above came from.
+# The queries are identical either way; see "Benchmark notes".
 python3 evaluation/gistify_runner.py --only requests
 ```
 
@@ -219,30 +228,44 @@ and `python-poetry/tomlkit 0.13.2`
 
 | task | lines | reduction | files | queries | timeouts |
 |------|------:|----------:|:-----:|--------:|---------:|
-| requests-super_len_partial   | 11209 → 1166 | 89.6% | 36 → 10 | 1184 | 0 |
-| requests-guess_json_utf      | 11209 → 1185 | 89.4% | 36 → 10 | 1221 | 0 |
-| requests-content_disposition | 11209 → 1179 | 89.5% | 36 → 10 | 1202 | 0 |
-| requests-cookie_utils        | 11209 → 1190 | 89.4% | 36 → 10 | 1248 | 0 |
-| flask-request_ctx_basic      | 17565 → 2427 | 86.2% | 82 → 13 | 2489 | 6 |
-| flask-blueprint_registration | 17565 → 1896 | 89.2% | 82 → 17 | 3037 | 6 |
-| tomlkit-write_backslash      | 8621 → 746  | 91.3% | 28 → 14 | 2647 | 10 |
-| tomlkit-parse_examples       | 8621 → 958  | 88.9% | 28 → 11 | 2572 | 14 |
-| tomlkit-array_items          | 8621 → 1798 | 79.1% | 28 → 14 | 3172 | 52 |
-| tomlkit-document_dict        | 8621 → 2301 | 73.3% | 28 → 15 | 4159 | 94 |
+| requests-super_len_partial   | 11209 → 1166 | 89.6% | 36 → 10 | 1001 | 0 |
+| requests-guess_json_utf      | 11209 → 1185 | 89.4% | 36 → 10 | 1038 | 0 |
+| requests-content_disposition | 11209 → 1179 | 89.5% | 36 → 10 | 1019 | 0 |
+| requests-cookie_utils        | 11209 → 1190 | 89.4% | 36 → 10 | 1065 | 0 |
+| flask-request_ctx_basic      | 17565 → 2427 | 86.2% | 82 → 13 | 2131 | 6 |
+| flask-blueprint_registration | 17565 → 1896 | 89.2% | 82 → 17 | 2773 | 6 |
+| tomlkit-write_backslash      | 8621 → 747  | 91.3% | 28 → 14 | 2478 | 10 |
+| tomlkit-parse_examples       | 8621 → 959  | 88.9% | 28 → 11 | 2525 | 14 |
+| tomlkit-array_items          | 8621 → 1799 | 79.1% | 28 → 14 | 3022 | 55 |
+| tomlkit-document_dict        | 8621 → 2302 | 73.3% | 28 → 15 | 4013 | 95 |
 
-**87.03% aggregate line reduction, 10/10 execution fidelity.** Raw data
-in `evaluation/results_gistify_decorators.json` (requests, flask) and
-`evaluation/results_gistify_tomlkit_fixed.json` (tomlkit).
+**87.02% aggregate line reduction, 10/10 execution fidelity, 21,065
+queries in 3.2 hours.** Raw data in
+`evaluation/results_gistify_pruneblocks.json`.
 
-Re-run in one pass after the reduction pipeline moved onto the shared
-[readiness gate](#pointing-it-at-a-repository-it-has-never-seen):
-`evaluation/results_gistify_provision.json`. Every row above came back
-identical — the same surviving lines, the same file counts, the same
-22,931 queries and the same 182 timeouts. That is the point of running
-it. A refactor that touches how the environment is built and how the
-baseline is captured is exactly the kind that moves numbers quietly,
-and the only way to know it did not is to spend the 3.3 hours and diff
-the table.
+This is the table the code in this repository produces today. It is not
+the table it produced a week earlier, and the difference is worth one
+sentence: the [empty-block fix](#emptying-a-block-is-a-syntax-error) cut
+queries from 22,931 to 21,065 — **8.1% of every query, for the same ten
+outputs**. requests and flask come back byte-identical; the four tomlkit
+rows are one line longer each, which is the fix's own price rather than
+a regression, and 1,866 queries is a good trade for four lines. The
+earlier run is kept at `evaluation/results_gistify_provision.json` so
+the two can be diffed.
+
+Checked from a clean clone on 2026-08-27: `--only requests` returned
+1001, 1038, 1019 and 1065 queries against those four rows — every one
+exact, 4/4 fidelity. Wall clock did not match and is not meant to; the
+same four tasks took 13 minutes there against 23 in the recorded run.
+
+That earlier run was itself a re-run, made after the pipeline moved onto
+the shared [readiness gate](#pointing-it-at-a-repository-it-has-never-seen).
+Every row came back identical to the one before it — the same surviving
+lines, the same file counts, the same 22,931 queries and the same 182
+timeouts. That is the point of running it. A refactor that touches how
+the environment is built and how the baseline is captured is exactly the
+kind that moves numbers quietly, and the only way to know it did not is
+to spend the hours and diff the table.
 
 ### What the last two fixes bought
 
@@ -340,8 +363,11 @@ not finish on a faster machine either.
 ## Where the time goes
 
 Reduction is the expensive part: ~2,290 validation queries per task,
-22,931 across the benchmark. Timing every function on the reduction path
-accounts for that time to within half a percent:
+22,931 across the benchmark — the profiled run, before the
+[empty-block fix](#emptying-a-block-is-a-syntax-error) took it to
+21,065. The split below is unaffected, because what changed is how many
+queries are asked, not what one costs. Timing every function on the
+reduction path accounts for that time to within half a percent:
 
 | | requests-guess_json_utf | flask-request_ctx_basic |
 |---|---:|---:|
@@ -765,6 +791,33 @@ exactly, all four test functions survived with their assertions, and
 kept its full body and escape tables. 84 of the 115 surviving defs are
 stubbed to `pass`, which is the body-stubbing pass doing its job rather
 than the reducer emptying the thing it is measured on.
+
+### Emptying a block is a syntax error
+
+Phase 4a removes every definition with zero coverage in one query per
+file. Nothing stopped it removing *all* of them from one block — a class
+whose methods were all dead, an `if` whose body never ran — and Python
+has no way to write a class with an empty body. The pruned file did not
+parse, the local check rejected it, and Phase 4b then rediscovered the
+same removals one statement at a time, at one query each.
+
+The tell was that this never looked like a bug. The prune was refused
+locally, so it cost nothing visible; the definitions still went away,
+so the output was right; only the query count carried the damage. It
+took **8.1% of every query in the benchmark** — 1,866 of 22,931.
+
+The fix keeps the last statement of a block that would otherwise be
+emptied. That statement is not then immune: Phase 4b can still remove
+it, one query at a time, if it is genuinely dead. So the price is four
+lines across 14,850 — the four tomlkit rows in the table above — and
+requests and flask come out byte-identical.
+
+**A rejected candidate that costs one subprocess is the most expensive
+kind of silence in this codebase.** It is indistinguishable from an
+honest "no" and it never appears in any number the reduction reports.
+Two of the bugs above hid in exactly this way.
+
+---
 
 ### The halving descent
 
@@ -1254,7 +1307,7 @@ automre/examples/           small projects with real bugs, used by
                             entrypoint.sh and by the tests
 automre.py                  convenience shim; see the note above on why
                             `python3 -m automre.src.cli` fails beside it
-entrypoint.sh               tests plus one example reduction, ~30 s
+entrypoint.sh               tests plus one example reduction, ~50 s
 evaluation/
   gistify_runner.py         benchmark harness
   gistify_tasks.json        10-task manifest (requests, flask, tomlkit)
@@ -1273,7 +1326,11 @@ evaluation/
                             what retrieval put in it
     controls.json           which instances are scoreable, and why the
                             one that is not was excluded
-    score_patches.py        parse edits, apply, run F2P then P2P
+    score_patches.py        parse edits, apply, run F2P then P2P;
+                            --gold-as-edits is the positive control
+    generations.jsonl       the 80 model replies, so the GPU need not run
+    results_stage3.json     what they scored
+    results_gold_as_edits.json  and what the ground truth scored
     kaggle_cells.md         the generation notebook, as reviewable text
     push_kernel.py          turns that into a notebook and pushes it
   results_gistify_*.json    results per configuration
