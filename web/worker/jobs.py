@@ -32,8 +32,12 @@ sys.path.insert(0, str(_REPO_ROOT / "automre" / "src"))
 
 from multi_file import MultiFileDebugger  # noqa: E402
 # `discover` is re-exported for main.py, which asks this module for its
-# imports so the sys.path bootstrap above stays in one file.
-from provision import ProvisionError, provision  # noqa: E402
+# imports so the sys.path bootstrap above stays in one file. It has to be
+# named here to be re-exported, and once was not: the comment survived a
+# refactor that dropped the name, and `uvicorn main:app` failed on the
+# import line for weeks with a green test suite behind it, because
+# nothing imported main.
+from provision import ProvisionError, discover, provision  # noqa: E402
 from provision import check as gate_check  # noqa: E402
 
 # Upload guards. Reduction executes the code in the archive, so these are
