@@ -102,3 +102,29 @@ def test_a_job_whose_test_does_not_exist_fails_with_a_reason(tmp_path):
     assert "Traceback" not in job.error
 
     worker_jobs.shutil.rmtree(job.work_dir, ignore_errors=True)
+
+
+# ------------------------------------------------- the app has to import
+
+def test_the_worker_app_imports():
+    """`uvicorn main:app` is the first command in web/README.md.
+
+    Nothing imported main.py, so its module-level wiring was never
+    exercised: the provision refactor dropped `discover` from the
+    re-export in jobs.py, left the comment saying it was re-exported,
+    and the app failed on its import line with a fully green suite
+    behind it. A reader following the web README hit it immediately.
+    """
+    import importlib
+    import sys as _sys
+
+    worker = Path(__file__).resolve().parent.parent.parent / "web" / "worker"
+    _sys.path.insert(0, str(worker))
+    try:
+        main = importlib.import_module("main")
+        paths = {r.path for r in main.app.routes if hasattr(r, "path")}
+        assert "/health" in paths
+        assert "/api/jobs" in paths
+    finally:
+        _sys.path.remove(str(worker))
+        _sys.modules.pop("main", None)
