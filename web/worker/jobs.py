@@ -40,6 +40,21 @@ from multi_file import MultiFileDebugger  # noqa: E402
 from provision import ProvisionError, discover, provision  # noqa: E402
 from provision import check as gate_check  # noqa: E402
 
+# Named explicitly because `discover` is re-exported rather than used
+# here, so a linter calls it unused and the obvious fix is to delete it —
+# which is exactly how `uvicorn main:app` came to fail on its import
+# line. __all__ makes the re-export structural instead of a comment
+# asking the next reader not to tidy it away.
+__all__ = [
+    "MAX_ARCHIVE_BYTES",
+    "JobError",
+    "JobRegistry",
+    "count_python",
+    "discover",
+    "project_root",
+    "safe_extract",
+]
+
 # Upload guards. Reduction executes the code in the archive, so these are
 # the first line of defence and not merely resource limits — see
 # web/README.md, which does not pretend they are sufficient on their own.
