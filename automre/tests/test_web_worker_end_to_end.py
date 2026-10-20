@@ -128,3 +128,38 @@ def test_the_worker_app_imports():
     finally:
         _sys.path.remove(str(worker))
         _sys.modules.pop("main", None)
+
+
+def test_jobs_reexports_everything_main_imports():
+    """__all__ and main.py's import list must not drift apart.
+
+    `discover` is re-exported from jobs.py rather than used there, so a
+    linter reports it unused and the tidy-looking fix is to delete the
+    name — which is how `uvicorn main:app` came to fail on its import
+    line with the whole suite green. This pins the two lists together so
+    that deletion is a test failure rather than a discovery in
+    production.
+    """
+    import ast
+    import re
+
+    worker = Path(__file__).resolve().parent.parent.parent / "web" / "worker"
+    tree = ast.parse((worker / "jobs.py").read_text())
+    exported = [
+        elt.value
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(getattr(t, "id", "") == "__all__" for t in node.targets)
+        for elt in node.value.elts
+    ]
+    assert exported, "jobs.py has no __all__"
+
+    imports = re.search(r"from jobs import \(([^)]*)\)",
+                        (worker / "main.py").read_text())
+    assert imports, "main.py no longer imports from jobs in the expected form"
+    wanted = {w.strip().rstrip(",")
+              for w in imports.group(1).split() if w.strip().rstrip(",")}
+
+    assert wanted <= set(exported), (
+        f"main.py imports names jobs.py does not export: "
+        f"{sorted(wanted - set(exported))}")

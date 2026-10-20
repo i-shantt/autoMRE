@@ -201,14 +201,24 @@ def summarize(ablation: str | None = None) -> None:
     fid = sum(r["execution_fidelity"] for r in rows)
     print(f"\n  tasks              {len(rows)}")
     print(f"  execution fidelity {fid}/{len(rows)}")
+    if not orig:
+        # Rows exist and every one of them is a failure: run_task's error
+        # paths return original_lines=0. The `not rows` guard above does
+        # not catch this, so the aggregate divided by zero and a cloud box
+        # where provisioning failed for every task ended in a traceback
+        # instead of the per-task FAIL list this function exists to print.
+        print("  aggregate          n/a (no task produced a tree)")
+        print(f"  queries            "
+              f"{sum(r['total_queries'] for r in rows)}")
+        return
     print(f"  aggregate          {100 * (orig - final) / orig:.2f}%")
     if orig - prot:
         print(f"  reducible-only     "
               f"{100 * ((orig - prot) - (final - prot)) / (orig - prot):.2f}%")
     print(f"  queries            {sum(r['total_queries'] for r in rows)}")
     print("\nreference (M4 MacBook Air, sequential, 10 tasks / 3 repos): "
-          "86.53% aggregate, 95.23% reducible-only, 10/10 fidelity, "
-          "23,326 queries.")
+          "87.02% aggregate, 95.77% reducible-only, 10/10 fidelity, "
+          "21,065 queries.")
     print("Compare queries and lines, not wall clock -- wall clock is not "
           "comparable across machines.")
 
