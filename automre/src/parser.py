@@ -85,11 +85,6 @@ class CodeUnit:
         """Return the size of this unit in lines."""
         return self.end_line - self.start_line + 1
 
-    @property
-    def is_hot(self) -> bool:
-        """Return True if this unit was executed (based on coverage)."""
-        return self.execution_count > 0
-
     def __repr__(self) -> str:
         return f"CodeUnit({self.node_type}, L{self.start_line}-{self.end_line}, exec={self.execution_count})"
 
@@ -385,22 +380,6 @@ class PythonParser:
         return sorted(units, key=priority_key)
 
 
-def extract_line_ranges(units: List[CodeUnit]) -> Set[int]:
-    """
-    Extract all line numbers covered by the given units.
-
-    Args:
-        units: List of CodeUnit objects
-
-    Returns:
-        Set of line numbers
-    """
-    lines = set()
-    for unit in units:
-        lines.update(range(unit.start_line, unit.end_line + 1))
-    return lines
-
-
 def remap_executed_lines(source: str,
                          removed_char_ranges: List[Tuple[int, int]],
                          executed: Set[int]) -> Set[int]:
@@ -468,22 +447,3 @@ def format_code_without_units(source: str, units_to_remove: List[CodeUnit]) -> s
         result = result[:unit.start_char] + result[unit.end_char:]
 
     return result
-
-
-# For backward compatibility and direct use
-if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) < 2:
-        print("Usage: python parser.py <python_file>")
-        sys.exit(1)
-
-    parser = PythonParser()
-    tree, source = parser.parse_file(sys.argv[1])
-    units = parser.extract_units(tree, source)
-
-    print(f"Found {len(units)} top-level removable units:")
-    for unit in units:
-        print(f"  {unit}")
-        if unit.children:
-            print(f"    {len(unit.children)} nested units")

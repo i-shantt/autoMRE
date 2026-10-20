@@ -327,12 +327,12 @@ def cmd_reduce_project(args):
         verbose=args.verbose,
         timeout=args.timeout,
         match_strategy=args.strategy,
-        aggressive_inline=getattr(args, "aggressive_inline", False),
-        use_coverage_prune=not getattr(args, "no_coverage_prune", False),
-        use_learned_oracle=getattr(args, "use_learned_oracle", False),
+        aggressive_inline=args.aggressive_inline,
+        use_coverage_prune=not args.no_coverage_prune,
+        use_learned_oracle=args.use_learned_oracle,
         oracle_model_path=(Path(args.oracle_model)
-                           if getattr(args, "oracle_model", None) else None),
-        python=getattr(args, "python", None),
+                           if args.oracle_model else None),
+        python=args.python,
     )
     try:
         result = debugger.reduce_project(work_dir, test_command)

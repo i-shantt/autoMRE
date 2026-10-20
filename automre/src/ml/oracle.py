@@ -46,7 +46,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .features import FEATURE_NAMES, UnitFeatures, extract_features
+from .features import FEATURE_NAMES, UnitFeatures
 
 MODEL_FILENAME = "removability_model.pkl"
 DEFAULT_MODEL_PATH = Path(__file__).resolve().parent / MODEL_FILENAME
@@ -366,12 +366,6 @@ class LearnedRemovabilityOracle:
         import numpy as np
         X = np.asarray([f.to_vector() for f in features], dtype=float)
         return self.model.predict_proba(X)[:, 1].tolist()
-
-    def predict_node(self, node: Any, source: str, executed_lines,
-                     file_path=None) -> float:
-        """Convenience path straight from a tree-sitter node."""
-        return self.predict(
-            extract_features(node, source, executed_lines, file_path))
 
 
 def _format_report(report: Dict[str, Any]) -> str:
