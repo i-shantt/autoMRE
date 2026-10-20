@@ -859,6 +859,12 @@ Also void: `evaluation/results_ddmin.json`, `results_random.json` and
 validator described [above](#the-single-file-path-never-ran-the-candidate-either)
 and therefore measured nothing.
 
+There are 26 `results_*.json` files in `evaluation/` and only one is
+current. [`evaluation/README.md`](evaluation/README.md) is the provenance
+index: what each run was, which fix it predates, and which file the
+results table above is built from. It also records why the harness that
+produced those three baseline files cannot simply be re-run.
+
 ## The learned oracle, re-measured
 
 Retrained from scratch on **9,423 validated removal attempts** across 8
@@ -1333,7 +1339,11 @@ evaluation/
     results_gold_as_edits.json  and what the ground truth scored
     kaggle_cells.md         the generation notebook, as reviewable text
     push_kernel.py          turns that into a notebook and pushes it
-  results_gistify_*.json    results per configuration
+  results_gistify_*.json    results per configuration; evaluation/README.md
+                            says which one each number came from and
+                            which are withdrawn
+  README.md                 provenance index for the 26 results files,
+                            and a warning about four unwired modules
 notebooks/
   automre_benchmark.ipynb   driver for cloud_bench.py on a hosted runtime
 web/
