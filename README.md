@@ -97,9 +97,11 @@ pip install -e ".[dev]"      # plain `pip install -e .` if you don't want the te
 
 Runs the test suite, then reduces a bundled four-file example down to
 the six lines that still raise the same `TypeError`. Measured from a
-clean clone on an M4 MacBook Air: 89 seconds the first time, 52 after
-that. Nearly all of it is the test suite, and the difference is one test
-that provisions a virtualenv and so downloads a pinned pytest once.
+clean clone into an empty venv on an M4 MacBook Air: 52 seconds, and
+about 90 the very first time on a machine that has never fetched the
+pinned pytest — one test provisions a virtualenv and pip downloads it
+once. pip caches that fetch outside the clone, so a second clone on the
+same machine is already warm. Nearly all of the time is the test suite.
 
 It does not reproduce the benchmark below — that clones three
 repositories and takes hours — it prints the command for it.
@@ -142,9 +144,10 @@ same path entry. From the repo root the module form fails with
 ### The rest
 
 ```bash
-# Tests (169, ~50 s). pytest comes from the [dev] extra above; it is not
-# a runtime dependency, because autoMRE runs your reproduction command
-# in your environment rather than in its own.
+# Tests (170, ~50 s). One of them skips unless the web worker's stack is
+# installed; see web/worker/requirements.txt. pytest comes from the [dev]
+# extra above and is not a runtime dependency, because autoMRE runs your
+# reproduction command in your environment rather than in its own.
 python3 -m pytest automre/tests/
 
 # Full benchmark: ten tasks, ~3.2 hours, provisions a pinned venv on
