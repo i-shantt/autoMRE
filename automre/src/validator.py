@@ -19,7 +19,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Dict, List, Optional
 
 
 def oracle_env(base: Optional[Dict[str, str]] = None) -> Dict[str, str]:
@@ -450,62 +450,3 @@ class Validator:
         union = words1 | words2
 
         return len(intersection) / len(union)
-
-
-class PropertyTester:
-    """
-    Generic property tester for delta debugging.
-
-    Wraps a user-provided test function to determine if a reduction
-    preserves the target property.
-    """
-
-    def __init__(self, test_func: Callable[[str], bool]):
-        """
-        Initialize with a test function.
-
-        Args:
-            test_func: Function that takes source code and returns True
-                      if the property is preserved
-        """
-        self.test_func = test_func
-
-    def test(self, source_code: str) -> bool:
-        """
-        Test if source code preserves the property.
-
-        Args:
-            source_code: Source code to test
-
-        Returns:
-            True if property is preserved
-        """
-        try:
-            return self.test_func(source_code)
-        except Exception:
-            return False
-
-
-# For backward compatibility
-if __name__ == "__main__":
-    import sys
-
-    if len(sys.argv) < 2:
-        print("Usage: python validator.py <python_file>")
-        sys.exit(1)
-
-    # Example: validate that a file still raises an error
-    file_path = Path(sys.argv[1])
-
-    # First, capture original behavior
-    result = subprocess.run([sys.executable, str(file_path)],
-                           capture_output=True, text=True)
-
-    validator = Validator()
-    validator.set_original_behavior(result.stdout + result.stderr,
-                                    result.returncode)
-
-    print("Original behavior captured:")
-    print(f"  Error type: {validator.original_behavior.error_type}")
-    print(f"  Error message: {validator.original_behavior.error_message}")
-    print(f"  Return code: {validator.original_behavior.return_code}")

@@ -97,9 +97,11 @@ pip install -e ".[dev]"      # plain `pip install -e .` if you don't want the te
 
 Runs the test suite, then reduces a bundled four-file example down to
 the six lines that still raise the same `TypeError`. Measured from a
-clean clone on an M4 MacBook Air: 89 seconds the first time, 52 after
-that. Nearly all of it is the test suite, and the difference is one test
-that provisions a virtualenv and so downloads a pinned pytest once.
+clean clone into an empty venv on an M4 MacBook Air: 52 seconds, and
+about 90 the very first time on a machine that has never fetched the
+pinned pytest — one test provisions a virtualenv and pip downloads it
+once. pip caches that fetch outside the clone, so a second clone on the
+same machine is already warm. Nearly all of the time is the test suite.
 
 It does not reproduce the benchmark below — that clones three
 repositories and takes hours — it prints the command for it.
@@ -142,9 +144,10 @@ same path entry. From the repo root the module form fails with
 ### The rest
 
 ```bash
-# Tests (169, ~50 s). pytest comes from the [dev] extra above; it is not
-# a runtime dependency, because autoMRE runs your reproduction command
-# in your environment rather than in its own.
+# Tests (170, ~50 s). One of them skips unless the web worker's stack is
+# installed; see web/worker/requirements.txt. pytest comes from the [dev]
+# extra above and is not a runtime dependency, because autoMRE runs your
+# reproduction command in your environment rather than in its own.
 python3 -m pytest automre/tests/
 
 # Full benchmark: ten tasks, ~3.2 hours, provisions a pinned venv on
@@ -859,6 +862,12 @@ Also void: `evaluation/results_ddmin.json`, `results_random.json` and
 validator described [above](#the-single-file-path-never-ran-the-candidate-either)
 and therefore measured nothing.
 
+There are 26 `results_*.json` files in `evaluation/` and only one is
+current. [`evaluation/README.md`](evaluation/README.md) is the provenance
+index: what each run was, which fix it predates, and which file the
+results table above is built from. It also records why the harness that
+produced those three baseline files cannot simply be re-run.
+
 ## The learned oracle, re-measured
 
 Retrained from scratch on **9,423 validated removal attempts** across 8
@@ -1333,7 +1342,11 @@ evaluation/
     results_gold_as_edits.json  and what the ground truth scored
     kaggle_cells.md         the generation notebook, as reviewable text
     push_kernel.py          turns that into a notebook and pushes it
-  results_gistify_*.json    results per configuration
+  results_gistify_*.json    results per configuration; evaluation/README.md
+                            says which one each number came from and
+                            which are withdrawn
+  README.md                 provenance index for the 26 results files,
+                            and a warning about four unwired modules
 notebooks/
   automre_benchmark.ipynb   driver for cloud_bench.py on a hosted runtime
 web/

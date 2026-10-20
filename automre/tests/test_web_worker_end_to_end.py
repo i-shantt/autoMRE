@@ -16,6 +16,8 @@ import time
 import zipfile
 from pathlib import Path
 
+import pytest
+
 _ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_ROOT / "web" / "worker"))
 
@@ -115,6 +117,17 @@ def test_the_worker_app_imports():
     and the app failed on its import line with a fully green suite
     behind it. A reader following the web README hit it immediately.
     """
+    # fastapi is deliberately not in the [dev] extra: the worker deploys
+    # as its own container and pins its stack in web/worker/requirements.txt,
+    # so a core dev install should not drag a web framework in. Skipping
+    # here rather than adding the dependency keeps `./entrypoint.sh` green
+    # on a clean clone. The regression this guards against is still caught
+    # without fastapi by test_jobs_reexports_everything_main_imports, which
+    # reads the source instead of importing it.
+    pytest.importorskip("fastapi",
+                        reason="web worker stack not installed; "
+                               "pip install -r web/worker/requirements.txt")
+
     import importlib
     import sys as _sys
 

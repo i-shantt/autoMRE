@@ -784,10 +784,6 @@ class HybridDeltaDebugger:
         return {id(u) for u, p in zip(scored, probs)
                 if p < self.oracle_skip_threshold}
 
-    def _remove_units(self, source_code: str, units: List[CodeUnit]) -> str:
-        """Remove specified units from source code."""
-        return format_code_without_units(source_code, units)
-
     def _validate(self, source_code: str, test_command: Optional[List[str]],
                   cwd: Optional[Path]) -> bool:
         """Validate that source code still reproduces the bug."""

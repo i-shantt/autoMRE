@@ -410,28 +410,3 @@ def _is_named(file_path: Optional[Path | str], target: str) -> int:
     if file_path is None:
         return 0
     return 1 if Path(file_path).name == target else 0
-
-
-if __name__ == "__main__":
-    import sys as _sys
-
-    _SRC_DIR = Path(__file__).resolve().parent.parent
-    if str(_SRC_DIR) not in _sys.path:
-        _sys.path.insert(0, str(_SRC_DIR))
-    from parser import PythonParser  # noqa: E402
-
-    if len(_sys.argv) < 2:
-        print("Usage: python features.py <python_file>")
-        raise SystemExit(1)
-
-    path = Path(_sys.argv[1])
-    text = path.read_text()
-    tree = PythonParser().parse_source(text)
-
-    print(f"{len(FEATURE_NAMES)} features per unit\n")
-    for top in tree.root_node.named_children:
-        feats = extract_features(top, text, set(), path)
-        label = _definition_name(top) or top.type
-        print(f"{label:<40} {top.type:<24} "
-              f"lines={feats.n_lines:<4} refs={feats.references_in_file:<3} "
-              f"decs={sorted(feats.decorator_kinds)}")
