@@ -229,6 +229,45 @@ def test_gate_accepts_a_healthy_project(tmp_path):
     assert verdict.command_runs >= 2
 
 
+def test_gate_reports_how_long_one_run_took(tmp_path):
+    """The gate's runs are the only measurement of per-query cost there is.
+
+    A reduction costs queries x one run of the command, and the query count
+    is estimated after Phase 1 — so this field is what lets a caller price a
+    reduction before starting one instead of discovering the cost by paying
+    it. The gate already ran the command twice; it used to discard the clock.
+    """
+    proj = _flat_project(tmp_path)
+
+    verdict = check(proj, [sys.executable, "-m", "pytest",
+                           "tests/test_mylib.py::test_add", "-x", "-q"])
+
+    assert verdict.ok, verdict.reason
+    # A real pytest run. Generous upper bound so a loaded machine does not
+    # fail this; the point is that it is measured, not defaulted to zero.
+    assert 0.0 < verdict.baseline_seconds < 120.0
+
+
+def test_a_rejected_project_still_reports_its_timing(tmp_path):
+    """A refusal is where the projection matters most.
+
+    When the gate turns a project away the caller may still want to say what
+    the attempt would have cost, so the timing is attached to the failure
+    verdicts too rather than only to the happy path.
+    """
+    proj = _flat_project(tmp_path)
+
+    verdict = check(proj, [sys.executable, "-m", "pytest",
+                           "tests/test_mylib.py::test_imaginary", "-x", "-q"])
+
+    assert not verdict.ok
+    # This one is refused structurally, before any run — so it is 0.0 and
+    # that is correct. What must not happen is a run having been paid for
+    # and the clock thrown away.
+    assert verdict.baseline_seconds == 0.0
+    assert verdict.command_runs == 0
+
+
 def test_gate_rejects_a_test_that_does_not_exist(tmp_path):
     proj = _flat_project(tmp_path)
 

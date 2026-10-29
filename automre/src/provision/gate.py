@@ -23,6 +23,7 @@ import re
 import shutil
 import subprocess
 import sys as _sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Sequence
@@ -45,6 +46,18 @@ class Readiness:
     baseline_output: str = ""
     baseline_rc: int = 0
     command_runs: int = 0
+    # How long one run of the command takes, averaged over the baseline and
+    # the determinism repeat. The checks below already pay for those runs and
+    # used to throw the timing away, which is the one number a caller needs to
+    # price a reduction before starting it: queries x this is the wall clock,
+    # and `MultiFileDebugger` emits an estimate of the query count after its
+    # first phase. The vacuity-control runs are excluded because a renamed
+    # package fails fast and is not representative.
+    #
+    # It errs high as a projection: reduction queries run against a tree that
+    # is getting smaller, so the real per-query cost drifts below this. For
+    # admission control that is the safe direction.
+    baseline_seconds: float = 0.0
 
     def __bool__(self) -> bool:
         return self.ok
@@ -79,35 +92,38 @@ def check(project_dir: Path, command: Sequence[str],
         return Readiness(False, f"the command names {missing[0]}, which this "
                                 f"project does not contain")
 
-    output, rc = _run(project_dir, command, timeout)
+    output, rc, first_seconds = _run(project_dir, command, timeout)
     runs = 1
 
     unhealthy = baseline_health(output, rc, require_pass=require_pass)
     if unhealthy:
-        return Readiness(False, unhealthy, output, rc, runs)
+        return Readiness(False, unhealthy, output, rc, runs, first_seconds)
 
-    repeat_output, repeat_rc = _run(project_dir, command, timeout)
+    repeat_output, repeat_rc, repeat_seconds = _run(
+        project_dir, command, timeout)
     runs += 1
+    seconds = (first_seconds + repeat_seconds) / 2
     if repeat_rc != rc:
         return Readiness(False,
                          f"the command is not deterministic: exit {rc} then "
                          f"exit {repeat_rc}. Reduction against a flaky test "
-                         f"records noise as behavior", output, rc, runs)
+                         f"records noise as behavior", output, rc, runs,
+                         seconds)
     if (Validator._normalize_output(output)
             != Validator._normalize_output(repeat_output)):
         return Readiness(False,
                          "the command produces different output on two "
                          "consecutive runs, so the oracle cannot tell a "
                          "broken candidate from an unlucky one",
-                         output, rc, runs)
+                         output, rc, runs, seconds)
 
     vacuous, control_runs = _reduction_would_be_vacuous(
         project_dir, command, output, rc, timeout)
     runs += control_runs
     if vacuous:
-        return Readiness(False, vacuous, output, rc, runs)
+        return Readiness(False, vacuous, output, rc, runs, seconds)
 
-    return Readiness(True, None, output, rc, runs)
+    return Readiness(True, None, output, rc, runs, seconds)
 
 
 # --------------------------------------------------------------- checks
@@ -214,7 +230,7 @@ def _reduction_would_be_vacuous(project_dir: Path, command: List[str],
         pkg_dir.rename(hidden)
         try:
             purge_bytecode(project_dir)
-            output, rc = _run(project_dir, command, timeout)
+            output, rc, _ = _run(project_dir, command, timeout)
             runs += 1
             still_reproduces = (
                 rc == baseline_rc
@@ -276,12 +292,21 @@ def _missing_node_ids(project_dir: Path, command: List[str]) -> List[str]:
 
 
 def _run(project_dir: Path, command: List[str], timeout: int) -> tuple:
+    """Run the command once. Returns (output, returncode, seconds).
+
+    The elapsed time is measured because the caller cannot get it anywhere
+    cheaper: these are the only runs of the command that happen before the
+    reduction commits to thousands more.
+    """
     purge_bytecode(project_dir)
+    started = time.monotonic()
     try:
         proc = subprocess.run(command, cwd=project_dir, capture_output=True,
                               text=True, timeout=timeout)
-        return (proc.stdout or "") + (proc.stderr or ""), proc.returncode
+        return ((proc.stdout or "") + (proc.stderr or ""), proc.returncode,
+                time.monotonic() - started)
     except subprocess.TimeoutExpired:
-        return "TIMEOUT", -1
+        return "TIMEOUT", -1, time.monotonic() - started
     except OSError as exc:
-        return f"could not run the command: {exc}", -1
+        return (f"could not run the command: {exc}", -1,
+                time.monotonic() - started)
