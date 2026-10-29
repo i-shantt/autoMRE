@@ -167,6 +167,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             should_cancel=should_cancel,
             deadline=reduce_deadline,
             query_timeout=args.query_timeout,
+            originals_dir=tmp / "before",
         )
         summary = outcome.summary
 
@@ -204,7 +205,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 _write_json_atomic(
                     sink / "manifest.json",
                     build_manifest(args.job_id, state, root, command,
-                                   summary, max_files=MANIFEST_MAX_FILES))
+                                   summary, max_files=MANIFEST_MAX_FILES,
+                                   originals_dir=tmp / "before"))
             state.finished_at = time.time()
             reporter.write(state, force=True)
             # Written last: a reader that sees this file can rely on the

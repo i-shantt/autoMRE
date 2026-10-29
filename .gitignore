@@ -14,8 +14,12 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# Anchored to the repo root. Unanchored, these match a directory named
+# lib at any depth, which silently swallowed web/frontend/app/lib/ — the
+# file would have been absent from a fresh clone and the build would have
+# failed there while passing here.
+/lib/
+/lib64/
 parts/
 sdist/
 var/

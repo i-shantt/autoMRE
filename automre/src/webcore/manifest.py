@@ -46,9 +46,18 @@ def relative_to_root(path: Path, root: Path) -> str:
         return path.name
 
 
+def _same_bytes(a: Path, b: Path) -> Optional[bool]:
+    """Whether two files hold the same bytes, or None if either is unreadable."""
+    try:
+        return a.read_bytes() == b.read_bytes()
+    except OSError:
+        return None
+
+
 def build_manifest(job_id: str, state: JobState, root: Path,
                    command: List[str], summary: Any,
-                   max_files: Optional[int] = None) -> Dict[str, Any]:
+                   max_files: Optional[int] = None,
+                   originals_dir: Optional[Path] = None) -> Dict[str, Any]:
     """Everything the reduction did to every file.
 
     `root_prefix` is load-bearing. `project_root` strips a single
@@ -97,12 +106,29 @@ def build_manifest(job_id: str, state: JobState, root: Path,
             add(path, "inlined", None, 0)
 
         for path, (before, after) in summary.per_file_reduction.items():
-            if relative_to_root(path, root) in protected:
+            rel = relative_to_root(path, root)
+            if rel in protected:
                 continue
             if after == 0:
                 add(path, "deleted", before, 0)
-            elif after < before:
+                continue
+            if after < before:
                 add(path, "reduced", before, after)
+                continue
+
+            # Equal line counts do not mean an untouched file. The
+            # reducer stubs a function by replacing its body with
+            # `pass`, which can remove four lines and add four — so a
+            # file whose docstring went and whose bodies are now
+            # placeholders reports 37 -> 37 and would be labelled
+            # "unchanged" on the strength of the arithmetic alone.
+            # Observed on exactly that shape, which is why the bytes
+            # are compared rather than the counts.
+            identical = None
+            if originals_dir is not None:
+                identical = _same_bytes(originals_dir / rel, path)
+            if identical is False:
+                add(path, "reduced", before, after, same_line_count=True)
             else:
                 add(path, "unchanged", before, after)
 

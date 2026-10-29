@@ -230,7 +230,8 @@ class JobRegistry:
             # sandbox runner so both front doors answer /manifest and the
             # UI can be developed against a local worker.
             job.manifest = build_manifest(job.job_id, job, root, job.command,
-                                          outcome.summary)
+                                          outcome.summary,
+                                          originals_dir=tmp / "before")
 
             if outcome.cancelled:
                 job._cancel.set()

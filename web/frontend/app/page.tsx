@@ -15,6 +15,18 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import Result, { type Manifest } from './components/Result';
+import {
+  type Collected,
+  ProjectError,
+  collectEntries,
+  collectFileList,
+  commonPrefix,
+  countPython,
+  entriesFromDrop,
+  zipProject,
+} from './lib/project';
+
 type Detected = {
   files: number;
   lines: number;
@@ -24,7 +36,16 @@ type Detected = {
 
 type Status = {
   job_id: string;
-  status: 'queued' | 'preparing' | 'running' | 'done' | 'failed' | 'cancelled';
+  status:
+    | 'queued'
+    | 'preparing'
+    | 'running'
+    | 'done'
+    | 'failed'
+    | 'cancelled'
+    // Out of budget rather than the user's choice. Still a real result:
+    // every deletion in it was verified.
+    | 'timed_out';
   phase: string;
   message: string;
   queries: number;
@@ -42,7 +63,15 @@ type Status = {
   original_lines: number;
   final_files: number;
   final_lines: number;
+  protected_lines: number;
   has_result: boolean;
+  has_manifest: boolean;
+  expired: boolean;
+  baseline_seconds: number | null;
+  // A ceiling, not a prediction — it was 6.7x high on one measured
+  // project and 4x low on another. Never render it as time remaining;
+  // eta_low_seconds / eta_high_seconds are the honest pair.
+  projected_ceiling_seconds: number | null;
 };
 
 const PHASES: Record<string, string> = {
@@ -65,26 +94,37 @@ function duration(seconds: number): string {
 }
 
 export default function Page() {
-  const [file, setFile] = useState<File | null>(null);
+  // The archive we will upload, and a human label for whatever produced
+  // it — a dropped folder has no single filename.
+  const [archive, setArchive] = useState<Blob | null>(null);
+  const [label, setLabel] = useState<string | null>(null);
+  const [localCount, setLocalCount] = useState<number | null>(null);
+  const [skipped, setSkipped] = useState<string[]>([]);
   const [detected, setDetected] = useState<Detected | null>(null);
   const [command, setCommand] = useState('');
   const [jobId, setJobId] = useState<string | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
+  const [manifest, setManifest] = useState<Manifest | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dirInputRef = useRef<HTMLInputElement>(null);
 
-  const accept = useCallback(async (picked: File) => {
-    setFile(picked);
+  /** Send an archive to /api/detect so step 2 can offer real test names. */
+  const inspect = useCallback(async (blob: Blob, name: string) => {
+    setArchive(blob);
+    setLabel(name);
     setDetected(null);
     setError(null);
     setJobId(null);
     setStatus(null);
+    setManifest(null);
     setBusy(true);
     try {
       const body = new FormData();
-      body.append('file', picked);
+      // The worker checks the filename ends in .zip before reading it.
+      body.append('file', blob, 'project.zip');
       const res = await fetch('/api/detect', { method: 'POST', body });
       const json = await res.json();
       if (!res.ok) throw new Error(json.detail ?? 'could not read the archive');
@@ -99,13 +139,85 @@ export default function Page() {
     }
   }, []);
 
+  /** A dropped or chosen folder: walk it, zip it, then inspect it. */
+  const acceptCollected = useCallback(
+    async (collected: Collected, fallbackName: string) => {
+      setBusy(true);
+      setError(null);
+      setSkipped(collected.skipped);
+      try {
+        const pythons = countPython(collected);
+        if (pythons === 0) {
+          throw new ProjectError(
+            'no .py files in there. autoMRE reduces Python projects — ' +
+              'drop the folder that holds your package and its tests.',
+          );
+        }
+        setLocalCount(pythons);
+        const blob = await zipProject(collected);
+        const name =
+          commonPrefix(collected.files.keys()) ?? fallbackName;
+        await inspect(blob, name);
+      } catch (e) {
+        setArchive(null);
+        setLabel(null);
+        setError(e instanceof Error ? e.message : String(e));
+        setBusy(false);
+      }
+    },
+    [inspect],
+  );
+
+  /** An already-zipped project: no walking needed. */
+  const acceptZip = useCallback(
+    async (picked: File) => {
+      setSkipped([]);
+      setLocalCount(null);
+      await inspect(picked, picked.name);
+    },
+    [inspect],
+  );
+
+  const onDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      setDragging(false);
+      const transfer = event.dataTransfer;
+      // Read the entries synchronously: the DataTransfer is neutered as
+      // soon as this handler yields, so anything awaited first finds it
+      // empty. Collecting the files themselves can happen afterwards.
+      const entries = entriesFromDrop(transfer);
+      const files = Array.from(transfer.files ?? []);
+
+      const singleZip =
+        files.length === 1 && files[0].name.toLowerCase().endsWith('.zip');
+      if (singleZip) {
+        void acceptZip(files[0]);
+        return;
+      }
+      if (entries.length > 0) {
+        void collectEntries(entries).then((collected) =>
+          acceptCollected(collected, 'dropped folder'),
+        );
+        return;
+      }
+      if (files.length > 0) {
+        void acceptCollected(
+          collectFileList(transfer.files!),
+          'dropped files',
+        );
+      }
+    },
+    [acceptCollected, acceptZip],
+  );
+
   const start = useCallback(async () => {
-    if (!file || !command.trim()) return;
+    if (!archive || !command.trim()) return;
     setBusy(true);
     setError(null);
     try {
       const body = new FormData();
-      body.append('file', file);
+      body.append('file', archive, 'project.zip');
       body.append('command', command.trim());
       const res = await fetch('/api/jobs', { method: 'POST', body });
       const json = await res.json();
@@ -116,7 +228,7 @@ export default function Page() {
     } finally {
       setBusy(false);
     }
-  }, [file, command]);
+  }, [archive, command]);
 
   // Poll rather than stream. A reduction emits an event per question —
   // hundreds a minute — and no one can use that; a snapshot every second
@@ -124,21 +236,46 @@ export default function Page() {
   useEffect(() => {
     if (!jobId) return;
     let live = true;
+    // A single bad response used to end polling for the rest of the
+    // session, so a restarting worker or one dropped request left the
+    // progress bar frozen at whatever it last said while the reduction
+    // carried on finishing. Retried with a backoff instead, and only
+    // given up on after enough consecutive failures to mean something.
+    let failures = 0;
+    const GIVE_UP_AFTER = 8;
+
     const tick = async () => {
+      let delay = 1500;
       try {
         const res = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' });
         const json = await res.json();
         if (!live) return;
-        if (!res.ok) {
-          setError(json.detail ?? 'lost track of the job');
+        if (res.status === 404) {
+          // The one unrecoverable answer: jobs live in the worker's
+          // memory, so an unknown id means it restarted and the job is
+          // gone. Retrying cannot help.
+          setError(json.detail ?? 'the job is no longer known to the worker');
           return;
         }
+        if (!res.ok) throw new Error(json.detail ?? 'poll failed');
+        failures = 0;
         setStatus(json);
-        if (['done', 'failed', 'cancelled'].includes(json.status)) return;
-      } catch {
-        /* a dropped poll is not worth surfacing; the next one will tell */
+        if (['done', 'failed', 'cancelled', 'timed_out'].includes(json.status)) {
+          return;
+        }
+      } catch (e) {
+        failures += 1;
+        if (failures >= GIVE_UP_AFTER) {
+          setError(
+            e instanceof Error
+              ? `lost track of the job: ${e.message}`
+              : 'lost track of the job',
+          );
+          return;
+        }
+        delay = Math.min(10000, 1500 * 2 ** (failures - 1));
       }
-      if (live) setTimeout(tick, 1500);
+      if (live) setTimeout(tick, delay);
     };
     tick();
     return () => {
@@ -146,9 +283,38 @@ export default function Page() {
     };
   }, [jobId]);
 
+  // The per-file account, fetched once the job stops. Separate from the
+  // status poll because it is answered once and the status is answered
+  // every second and a half.
+  useEffect(() => {
+    if (!jobId || !status) return;
+    if (!['done', 'cancelled', 'timed_out'].includes(status.status)) return;
+    if (manifest) return;
+    let live = true;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/jobs/${jobId}/manifest`, {
+          cache: 'no-store',
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (live) setManifest(json);
+      } catch {
+        /* the numbers still render; the file list is the extra */
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [jobId, status, manifest]);
+
   const running =
     status !== null && ['queued', 'preparing', 'running'].includes(status.status);
-  const finished = status?.status === 'done' || status?.status === 'cancelled';
+  // timed_out belongs here, not with failures: a job that ran out of
+  // budget still returns a verified, partially reduced project.
+  const finished =
+    status != null &&
+    ['done', 'cancelled', 'timed_out'].includes(status.status);
   // Progress is lines-examined, not queries. The reducer walks the
   // surviving files once and knows how many lines that is; how many
   // questions it will take to get through them it cannot know, because
@@ -168,57 +334,97 @@ export default function Page() {
       </p>
 
       {/* ---------------------------------------------------- step 1 */}
-      <section className="step" data-state={file ? 'ready' : 'active'}>
+      <section className="step" data-state={archive ? 'ready' : 'active'}>
         <div className="step-head">
           <span className="step-num">1</span>
-          <h2>Upload your project</h2>
+          <h2>Drop your project</h2>
         </div>
         <div
           className="drop"
           data-over={dragging}
-          onClick={() => inputRef.current?.click()}
+          onClick={() => dirInputRef.current?.click()}
           onDragOver={(e) => {
             e.preventDefault();
             setDragging(true);
           }}
           onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            const dropped = e.dataTransfer.files?.[0];
-            if (dropped) accept(dropped);
-          }}
+          onDrop={onDrop}
         >
+          {/* Two inputs because a browser file picker cannot offer both a
+              folder and a file in one dialog. The folder picker is the
+              default; the zip one is the fallback link below. */}
+          <input
+            ref={dirInputRef}
+            type="file"
+            /* Non-standard, supported everywhere, and not in React's
+               typings — hence the spread. */
+            {...({ webkitdirectory: '', directory: '' } as any)}
+            multiple
+            onChange={(e) => {
+              if (e.target.files?.length) {
+                void acceptCollected(
+                  collectFileList(e.target.files),
+                  'chosen folder',
+                );
+              }
+            }}
+          />
           <input
             ref={inputRef}
             type="file"
             accept=".zip"
             onChange={(e) => {
               const picked = e.target.files?.[0];
-              if (picked) accept(picked);
+              if (picked) void acceptZip(picked);
             }}
           />
-          {file ? (
+          {archive ? (
             <>
-              <strong className="mono">{file.name}</strong>
+              <strong className="mono">{label}</strong>
               <p className="small muted" style={{ margin: '6px 0 0' }}>
                 {detected
                   ? `${detected.files} Python files, ${detected.lines.toLocaleString()} lines` +
                     (detected.installable
                       ? ' · installable (pyproject/setup.py found)'
                       : ' · no pyproject.toml or setup.py')
-                  : 'reading…'}
+                  : busy
+                    ? localCount
+                      ? `zipping ${localCount} Python files…`
+                      : 'reading…'
+                    : 'reading…'}
               </p>
             </>
           ) : (
             <>
-              <strong>Drop a .zip of your project</strong>
+              <strong>Drop the folder with the bug in it</strong>
               <p className="small muted" style={{ margin: '6px 0 0' }}>
-                or click to choose · up to 25&nbsp;MB
+                or click to choose a folder · up to 25&nbsp;MB
+              </p>
+              <p className="small muted" style={{ margin: '2px 0 0' }}>
+                Caches, virtualenvs and <code>.git</code> are left behind
+                automatically.
               </p>
             </>
           )}
         </div>
+        {!archive && (
+          <p className="small muted" style={{ marginTop: 8 }}>
+            Already have a zip?{' '}
+            <button className="link" onClick={() => inputRef.current?.click()}>
+              Upload that instead
+            </button>
+            .
+          </p>
+        )}
+        {skipped.length > 0 && (
+          <p className="small muted" style={{ marginTop: 8 }}>
+            Left out {skipped.length} path{skipped.length === 1 ? '' : 's'}:{' '}
+            <span className="mono">
+              {skipped.slice(0, 3).join(', ')}
+              {skipped.length > 3 ? ', …' : ''}
+            </span>
+          </p>
+        )}
       </section>
 
       {/* ---------------------------------------------------- step 2 */}
@@ -269,7 +475,7 @@ export default function Page() {
 
         <button
           className="primary"
-          disabled={!file || !command.trim() || busy || running}
+          disabled={!archive || !command.trim() || busy || running}
           onClick={start}
         >
           {busy ? 'Working…' : 'Shrink it'}
@@ -376,11 +582,34 @@ export default function Page() {
                 </div>
               </div>
 
+              {/* The actual claim, said once in a sentence. The tiles
+                  above report how much went away; this is what makes it
+                  a result rather than a statistic. */}
+              <p className="claim">
+                {status!.original_files} file
+                {status!.original_files === 1 ? '' : 's'} →{' '}
+                {status!.final_files}, {status!.original_lines.toLocaleString()}{' '}
+                → {status!.final_lines.toLocaleString()} lines, and{' '}
+                <code>{command.trim()}</code> still does exactly what it did
+                before — checked {status!.queries.toLocaleString()} times.
+              </p>
+
               {status!.status === 'cancelled' && (
                 <div className="note">
                   Stopped early, so this is not fully minimized — but every
                   deletion in it was checked against your test, so it does
                   still behave the same way.
+                </div>
+              )}
+
+              {status!.status === 'timed_out' && (
+                <div className="note">
+                  This hit the time limit rather than finishing, so there
+                  may be more to remove. Everything in it was still checked
+                  against your test. Running it locally has no time limit:{' '}
+                  <code>
+                    automre reduce-project . -c &quot;{command.trim()}&quot;
+                  </code>
                 </div>
               )}
 
@@ -396,6 +625,8 @@ export default function Page() {
                 Unzip it and run your command again — it should print
                 exactly what it printed before.
               </p>
+
+              {manifest && <Result jobId={jobId!} manifest={manifest} />}
             </>
           )}
 
