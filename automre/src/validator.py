@@ -423,6 +423,27 @@ class Validator:
             # run to run and would otherwise make any output containing a
             # repr non-reproducible under output_match.
             line = re.sub(r'0x[0-9a-fA-F]{4,}', '0xADDR', line)
+            # Wall-clock timestamps in log lines, e.g. the one any project
+            # using logging or Flask emits:
+            #   [2026-10-29 01:49:46,255] WARNING in core: ...
+            # Two consecutive runs differ only in the milliseconds, which
+            # the gate reports as "the command produces different output on
+            # two consecutive runs" — a message that blames the user's test
+            # for being flaky when the only thing that moved was a clock.
+            # Worse, if such a project got past the gate, output_match would
+            # reject every candidate and the reduction would remove nothing.
+            # Measured on requests, whose test extra pulls in pytest-httpbin
+            # and so Flask: the gate refused it outright on this alone.
+            #
+            # Only date+time is normalized, never a bare date and never a
+            # bare HH:MM:SS. A date attached to a time is a log timestamp
+            # and is never the behavior a reduction should preserve, whereas
+            # "00:01:30" could be the asserted output of a duration
+            # formatter, and masking a change in that would be unsound.
+            line = re.sub(
+                r'\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?'
+                r'(?:Z|[+-]\d{2}:?\d{2})?',
+                'TIMESTAMP', line)
             out.append(line)
         return "\n".join(out)
 

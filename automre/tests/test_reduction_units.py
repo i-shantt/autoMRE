@@ -325,6 +325,52 @@ def test_normalizer_ignores_pytest_durations():
             Validator._normalize_output("5 passed in 1.42s"))
 
 
+def test_normalizer_ignores_log_timestamps():
+    """The exact pair of lines that made the gate refuse `requests`.
+
+    Its test extra pulls in pytest-httpbin, so Flask logs a warning
+    stamped with the wall clock. Two consecutive runs differed only in the
+    milliseconds, and the gate reported "the command produces different
+    output on two consecutive runs" — which reads as the user's test being
+    flaky when the only thing that moved was a clock.
+    """
+    a = ("[2026-10-29 01:49:46,255] WARNING in core: flasgger is not "
+         "installed; serving the static landing page at /")
+    b = a.replace("01:49:46,255", "01:49:46,797")
+    assert (Validator._normalize_output(a) ==
+            Validator._normalize_output(b))
+
+
+def test_normalizer_ignores_iso_and_offset_timestamps():
+    forms = [
+        "started 2026-10-29T01:49:46 ok",
+        "started 2026-10-29T01:49:46.123456 ok",
+        "started 2026-10-29 01:49:46,255 ok",
+        "started 2026-10-29T01:49:46Z ok",
+        "started 2026-10-29T01:49:46+00:00 ok",
+    ]
+    normalized = {Validator._normalize_output(f) for f in forms}
+    assert normalized == {"started TIMESTAMP ok"}, normalized
+
+
+def test_normalizer_keeps_bare_clock_times_distinct():
+    """Deliberately NOT normalized, because it could be the answer.
+
+    A date attached to a time is a log stamp and is never the behavior a
+    reduction preserves. A bare `00:01:30` can be the asserted output of a
+    duration formatter, and treating two different durations as equal would
+    make the oracle unsound in exactly the way this project keeps finding
+    bugs about.
+    """
+    assert (Validator._normalize_output("elapsed 00:01:30") !=
+            Validator._normalize_output("elapsed 00:02:45"))
+
+
+def test_normalizer_keeps_bare_dates_distinct():
+    assert (Validator._normalize_output("due 2026-10-29") !=
+            Validator._normalize_output("due 2026-11-30"))
+
+
 # --------------------------------------------------------------- halving
 
 def _counting_probe(removable):

@@ -66,6 +66,11 @@ class MultiFileReductionResult:
     # 1016 of the 1198 surviving lines, so a total-line figure of 89.3%
     # conceals a 98.2% reduction of the code actually under reduction.
     protected_line_count: int = 0
+    # Which files those were. The count alone cannot answer "why is this
+    # file unchanged?", and a reader looking at a reduced project needs to
+    # be told that the test file is identical on purpose rather than left
+    # out by a reducer that gave up on it.
+    protected_files: List[Path] = field(default_factory=list)
     # .py files left untouched because they are not valid UTF-8, so the
     # reducer cannot cut them without risking their bytes. Reported for
     # the same reason the two counts above are: a run that quietly
@@ -627,6 +632,7 @@ class MultiFileDebugger:
             time_seconds=time.time() - start,
             protected_line_count=sum(self._line_count(f) for f in protected
                                      if f.exists()),
+            protected_files=[f for f in protected if f.exists()],
             undecodable_files=list(analysis.undecodable_files),
             outside_project_files=list(analysis.outside_project_files),
             oracle_enabled=self.oracle is not None,
