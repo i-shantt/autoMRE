@@ -92,18 +92,37 @@ class JobState:
 
     @property
     def projected_seconds(self) -> Optional[float]:
-        """What the reduction looks like it will cost, before paying for it.
+        """A worst-case ceiling on the reduction, not a prediction.
 
         queries x one run of the command. Both halves are known early: the
         gate measures the run time before the first query, and the reducer
         estimates the query count after its first phase.
 
-        Treat it as an order of magnitude, not a clock. Measured against a
-        real run it came out low by about 4x on a 26-line project, because
-        `estimated_queries` covers the per-file walk and not the phases
-        either side of it, and because a query on the full tree costs more
-        than the gate's baseline. It is useful for "minutes or hours",
-        which is the question admission control actually asks.
+        **It is not accurate and must not be shown as a clock.** Measured
+        against two real runs it missed in both directions:
+
+            26-line project:  projected   0.3s, actual  1.4s  (x0.24)
+            requests, 11209:  projected 2458s,  actual  367s  (x6.71)
+
+        A 28x swing between two points. Both errors have causes, and
+        neither is going away:
+
+        * `estimated_queries` counts the per-file walk, which is ~97% of
+          queries on a large project and a minority of them on a tiny one,
+          so it under-counts small jobs and over-counts large ones (2038
+          estimated against 1038 actual on requests).
+        * `baseline_seconds` times a run against the *whole* tree, while
+          almost every query runs against a tree that is already mostly
+          deleted. On requests the real mean was 0.353s against a 1.206s
+          baseline — 3.4x out, and that gap widens the more there is to
+          remove.
+
+        So it is used for one thing: refusing work that is obviously too
+        big, where being 7x pessimistic is survivable and the alternative
+        is a user waiting out a budget for nothing. It is not what tells
+        anyone how long to wait — `eta_range` does that, extrapolated from
+        work actually completed, and it is the only estimate here measured
+        against progress rather than guessed before it.
         """
         if not self.baseline_seconds or not self.estimated_queries:
             return None
@@ -158,7 +177,12 @@ class JobState:
             "final_lines": self.final_lines,
             "protected_lines": self.protected_lines,
             "baseline_seconds": round(self.baseline_seconds, 3) or None,
-            "projected_seconds": round(projected) if projected else None,
+            # Named a ceiling, not a projection, so nothing downstream
+            # renders it as "time remaining". See projected_seconds: it
+            # was 6.7x high on requests and 4x low on a tiny project.
+            # eta_range is the number fit to show a waiting user.
+            "projected_ceiling_seconds": (round(projected) if projected
+                                          else None),
         }
 
     # ------------------------------------------------ serialization

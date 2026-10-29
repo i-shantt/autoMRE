@@ -140,6 +140,59 @@ A reduction cannot notice that from the inside — every candidate really
 does preserve the behavior it was handed. The only place to catch it is
 before the first query.
 
+## What a job costs
+
+Measured per phase, because a hosted deployment is billed on CPU and
+almost everything written about this tool's cost is wall clock. Both runs
+on an M4 MacBook Air, CPU measured as `RUSAGE_CHILDREN` across the
+phase — essentially all of it is the oracle subprocess.
+
+| | 26-line project | `requests`, 11,209 lines |
+|---|---|---|
+| provision | 4.2 s wall / 3.0 s CPU | 60.1 s wall / **5.8 s CPU** |
+| gate | 0.2 s / 0.2 s | 2.7 s / 0.7 s |
+| reduce | 1.4 s / 1.2 s | 366.6 s / **273.7 s** |
+| **total CPU** | **0.07 CPU-min** | **4.67 CPU-min** |
+
+Two things follow, and they point in opposite directions.
+
+**Provisioning is nearly free in CPU terms.** 60 seconds of wall clock
+for 5.8 seconds of CPU, because `pip` spends its life waiting on the
+network. On a platform that meters active CPU rather than elapsed time,
+the venv is not what costs money — the reduction is, at a CPU/wall ratio
+of 0.75. A 5-CPU-hour monthly allowance is therefore about **64
+reductions the size of `requests`**, not the dozen a wall-clock estimate
+would suggest.
+
+**The cost projection is unreliable and is not an ETA.** `queries x one
+run of the command` is computable before the first deletion — the gate
+times the command, and the reducer estimates the query count after Phase
+1 — but measured against these two runs it missed in both directions:
+
+```
+26-line project:  projected   0.3 s,  actual   1.4 s   (x0.24)
+requests:         projected 2458 s,   actual  367 s    (x6.71)
+```
+
+A 28x swing between two points, for two reasons that are not going away.
+`estimated_queries` counts the per-file walk, which is ~97% of queries on
+a large project and a minority of them on a small one, so it over-counts
+large jobs (2038 estimated against 1038 actual on `requests`) and
+under-counts small ones. And the gate times a run against the *whole*
+tree, while nearly every query runs against a tree that is already mostly
+deleted — 0.353 s actual mean against a 1.206 s baseline.
+
+So it is exposed as `projected_ceiling_seconds` and used for one thing:
+refusing work that is obviously too big, where being 7x pessimistic is
+survivable. The number fit to show someone waiting is `eta_low_seconds` /
+`eta_high_seconds`, which extrapolate from work actually completed.
+
+One operational note. Provisioning needs PyPI, so a job can fail for
+reasons that are nothing to do with the project: running this repository's
+own suite in a tight loop reliably produces `No matching distribution
+found for pytest==9.0.0` once PyPI starts throttling. A burst of jobs
+will hit the same wall, and it surfaces as a failed reduction.
+
 ## How progress is reported
 
 A reduction cannot say how long it will take, and the interesting part
