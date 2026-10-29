@@ -137,6 +137,70 @@ def cancel_job(job_id: str):
     return {"cancelled": True}
 
 
+@app.get("/api/jobs/{job_id}/manifest")
+def job_manifest(job_id: str):
+    """What the reduction did to every file.
+
+    Served separately from the status because it is answered once, when
+    the job finishes, while the status is polled every second or two.
+
+    It outlives the download on purpose: the retention sweep reclaims the
+    job's disk but keeps its row, so someone returning to a stale link
+    can still be shown what happened even though the zip is gone.
+    """
+    job = registry.get(job_id)
+    if job is None:
+        raise HTTPException(404, "no such job")
+    if job.manifest is None:
+        raise HTTPException(409, f"no manifest yet (status: {job.status})")
+    return job.manifest
+
+
+@app.get("/api/jobs/{job_id}/file")
+def job_file(job_id: str, path: str, side: str = "after"):
+    """One file's text, from before or after the reduction.
+
+    This is what makes the result readable: "mylib.py went from 120 lines
+    to 8" is a number, and the 112 lines that went away are the answer.
+    The before copy is taken by `snapshot_originals` because the reducer
+    rewrites files in place and would otherwise have destroyed it.
+
+    `path` comes from the client, so it is resolved and checked against
+    the directory it must stay inside. The manifest only ever offers
+    paths from this tree, but an endpoint that takes a path from a
+    request and joins it to a directory is a traversal bug waiting for
+    someone to try it.
+    """
+    job = registry.get(job_id)
+    if job is None:
+        raise HTTPException(404, "no such job")
+    if job.expired or job.work_dir is None:
+        raise HTTPException(410, "this result has expired and its files have "
+                                 "been deleted; start the reduction again")
+    if side not in {"before", "after"}:
+        raise HTTPException(400, "side must be 'before' or 'after'")
+
+    base = (job.work_dir / "before") if side == "before" else job.project_root
+    if base is None:
+        raise HTTPException(409, f"nothing to show yet (status: {job.status})")
+
+    target = (base / path).resolve()
+    root = base.resolve()
+    if root not in target.parents and target != root:
+        raise HTTPException(400, "path escapes the project")
+    if not target.is_file():
+        # A deleted file has no "after", which is not an error — it is the
+        # result. Saying so lets the viewer render an empty right-hand
+        # pane instead of an error box.
+        return {"path": path, "side": side, "exists": False, "text": None}
+    try:
+        text = target.read_text()
+    except (OSError, UnicodeDecodeError):
+        return {"path": path, "side": side, "exists": True, "text": None,
+                "binary": True}
+    return {"path": path, "side": side, "exists": True, "text": text}
+
+
 @app.get("/api/jobs/{job_id}/result")
 def job_result(job_id: str):
     job = registry.get(job_id)

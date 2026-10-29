@@ -92,6 +92,18 @@ def test_the_runner_and_the_worker_produce_the_same_zip(tmp_path):
         for name in sorted(a.namelist()):
             assert a.read(name) == b.read(name), f"{name} differs"
 
+    # And the account of what happened, not just the artifact. Comparing
+    # the per-file verdicts rather than the whole document, because the
+    # stats block legitimately differs: two runs have two elapsed times.
+    from_runner = json.loads((sink / "manifest.json").read_text())
+
+    def verdicts(manifest):
+        return {f["path"]: (f["status"], f["before_lines"], f["after_lines"])
+                for f in manifest["files"]}
+
+    assert verdicts(from_runner) == verdicts(job.manifest)
+    assert from_runner["root_prefix"] == job.manifest["root_prefix"]
+
     worker_jobs.shutil.rmtree(job.work_dir, ignore_errors=True)
 
 

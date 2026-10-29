@@ -43,6 +43,7 @@ from webcore import (  # noqa: E402
     MAX_UNCOMPRESSED_BYTES,
     JobError,
     JobState,
+    build_manifest,
     count_python,
     package,
     project_root,
@@ -95,6 +96,16 @@ class Job(JobState):
 
     work_dir: Optional[Path] = None
     result_zip: Optional[Path] = None
+    # Where the project ended up on disk, and where its untouched copy
+    # went. Both are needed to answer "show me what was removed from this
+    # file", which is the one question the result zip cannot answer on
+    # its own.
+    project_root: Optional[Path] = None
+    # Held in memory rather than on disk because it is small and because
+    # the retention sweep reclaims the directory while keeping the row:
+    # a reader whose download expired can still be shown what the
+    # reduction did.
+    manifest: Optional[Dict] = None
     # Set once the job's disk has been reclaimed, so a late download can
     # be told the result expired rather than that it never existed.
     expired: bool = False
@@ -103,6 +114,7 @@ class Job(JobState):
     def snapshot(self) -> Dict:
         snap = super().snapshot()
         snap["has_result"] = self.result_zip is not None
+        snap["has_manifest"] = self.manifest is not None
         snap["expired"] = self.expired
         return snap
 
@@ -198,6 +210,7 @@ class JobRegistry:
             extracted.mkdir()
             safe_extract(archive, extracted)
             root = project_root(extracted)
+            job.project_root = root
 
             outcome = run_pipeline(
                 root, job.command,
@@ -210,7 +223,14 @@ class JobRegistry:
                 should_cancel=job._cancel.is_set,
                 deadline=time.time() + MAX_JOB_SECONDS,
                 interpreter=python,
+                originals_dir=tmp / "before",
             )
+
+            # The per-file account, written here rather than only in the
+            # sandbox runner so both front doors answer /manifest and the
+            # UI can be developed against a local worker.
+            job.manifest = build_manifest(job.job_id, job, root, job.command,
+                                          outcome.summary)
 
             if outcome.cancelled:
                 job._cancel.set()

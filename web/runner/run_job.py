@@ -42,6 +42,7 @@ sys.path.insert(0, str(_REPO_ROOT / "automre" / "src"))
 from webcore import (  # noqa: E402
     JobError,
     JobState,
+    build_manifest,
     count_python,
     package,
     project_root,
@@ -60,6 +61,12 @@ DEFAULT_FLUSH_RESERVE = 120
 # so writing every event would be pure disk churn. Phase and status
 # changes bypass this: they are what the reader is actually waiting for.
 STATUS_MIN_INTERVAL = 1.0
+
+# Cap on manifest rows. A reduced project is small by construction, so
+# this only ever truncates the list of *deleted* files — and "4,900 other
+# files were deleted" is one line rather than 4,900. The survivors, which
+# are what a reader came to look at, are kept whole.
+MANIFEST_MAX_FILES = 2000
 
 
 class Reporter:
@@ -98,101 +105,6 @@ def _write_json_atomic(path: Path, payload: Dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2, default=str))
     os.replace(tmp, path)
-
-
-def _rel(path: Path, root: Path) -> str:
-    """Path relative to the project root, resolving both sides first.
-
-    Both halves have to be resolved or this silently yields absolute
-    paths: the reducer resolves the paths it reports, and on macOS a
-    temp directory is handed out as /var/folders/... while resolving to
-    /private/var/folders/..., so `relative_to` raises and every entry in
-    the manifest comes out absolute — which leaks a sandbox path to the
-    user and makes the viewer unable to match anything.
-    """
-    try:
-        return path.resolve().relative_to(root.resolve()).as_posix()
-    except ValueError:
-        return path.name
-
-
-def build_manifest(job_id: str, state: JobState, root: Path,
-                   command: List[str], summary: Any) -> Dict[str, Any]:
-    """Per-file account of what the reduction did.
-
-    The reducer already knows all of this and the web service has been
-    throwing it away, keeping two numbers out of a dozen. Without it a
-    user downloads a zip and has to diff it against their own project to
-    learn anything.
-
-    `root_prefix` is load-bearing. `project_root` strips a single
-    wrapping directory from the upload, so without recording which one,
-    every path here is off by one directory against the archive the user
-    sent and a viewer cannot line the two sides up.
-    """
-    files: List[Dict[str, Any]] = []
-
-    def add(path: Path, status: str, before: Optional[int],
-            after: Optional[int]) -> None:
-        files.append({"path": _rel(path, root), "status": status,
-                      "before_lines": before, "after_lines": after})
-
-    if summary is not None:
-        # Protected files first, and from `protected_files` rather than
-        # from `per_file_reduction`. They are excluded from the reducer's
-        # file walk by definition, so they never appear in the walk's
-        # results — listing them only from there dropped the one file a
-        # reader most wants explained, the test itself.
-        protected = set()
-        for p in summary.protected_files:
-            rel = _rel(p, root)
-            protected.add(rel)
-            try:
-                n = len(p.read_text().splitlines())
-            except (OSError, UnicodeDecodeError):
-                n = None
-            # Identical on both sides on purpose: this file is the
-            # question the reduction was answering.
-            files.append({"path": rel, "status": "protected",
-                          "before_lines": n, "after_lines": n})
-
-        gone = {"unreachable": summary.unreachable_deleted,
-                "imported-only": summary.imported_deleted}
-        for why, paths in gone.items():
-            for p in paths:
-                files.append({"path": _rel(p, root), "status": "deleted",
-                              "reason": why, "before_lines": None,
-                              "after_lines": 0})
-        for p in summary.inlined_away:
-            add(p, "inlined", None, 0)
-        for p, (before, after) in summary.per_file_reduction.items():
-            rel = _rel(p, root)
-            if rel in protected:
-                continue
-            if after == 0:
-                add(p, "deleted", before, 0)
-            elif after < before:
-                add(p, "reduced", before, after)
-            else:
-                add(p, "unchanged", before, after)
-        for p in summary.undecodable_files:
-            add(p, "untouchable", None, None)
-        for p in summary.outside_project_files:
-            add(p, "outside-project", None, None)
-        for rel, err in getattr(summary, "reduction_errors", {}).items():
-            files.append({"path": str(rel), "status": "errored",
-                          "error": str(err),
-                          "before_lines": None, "after_lines": None})
-
-    return {
-        "job_id": job_id,
-        "command": list(command),
-        "status": state.status,
-        "root_prefix": root.name,
-        "stats": state.snapshot(),
-        "files": sorted(files, key=lambda f: f["path"]),
-        "truncated": False,
-    }
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -291,7 +203,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 package(sink / "reduced.zip", root)
                 _write_json_atomic(
                     sink / "manifest.json",
-                    build_manifest(args.job_id, state, root, command, summary))
+                    build_manifest(args.job_id, state, root, command,
+                                   summary, max_files=MANIFEST_MAX_FILES))
             state.finished_at = time.time()
             reporter.write(state, force=True)
             # Written last: a reader that sees this file can rely on the

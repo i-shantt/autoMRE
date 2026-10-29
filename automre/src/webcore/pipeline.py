@@ -117,6 +117,39 @@ def check_ready(root: Path, command: List[str], timeout: int = 120):
     return verdict
 
 
+def snapshot_originals(root: Path, dest: Path) -> int:
+    """Copy the project's Python files aside before reduction touches them.
+
+    The reducer mutates `root` in place, so by the time there is a result
+    the "before" side of every diff has been overwritten. Without this a
+    viewer can say a file went from 120 lines to 8 and cannot show which
+    112 went away, which is the only part anyone actually wants to see.
+
+    Only `.py` files, because those are the only ones reduction rewrites,
+    and a project's fixtures or data files can be large. Returns how many
+    were copied.
+    """
+    copied = 0
+    for path in root.rglob("*.py"):
+        if any(part in _PACKAGE_EXCLUDE for part in path.parts):
+            continue
+        try:
+            target = dest / path.relative_to(root)
+        except ValueError:
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            # Bytes, not text: a project may hold a .py that is not valid
+            # UTF-8, and the reducer explicitly leaves those alone rather
+            # than risking them. Copying them as text would corrupt the
+            # one side of the diff that proves it did not touch them.
+            target.write_bytes(path.read_bytes())
+            copied += 1
+        except OSError:
+            continue
+    return copied
+
+
 def package(out: Path, root: Path) -> Path:
     """Zip the reduced project, without the litter reduction leaves.
 
@@ -144,6 +177,7 @@ def run_pipeline(root: Path, command: List[str], *,
                  deadline: Optional[float] = None,
                  interpreter: Optional[str] = None,
                  query_timeout: int = DEFAULT_QUERY_TIMEOUT,
+                 originals_dir: Optional[Path] = None,
                  ) -> PipelineOutcome:
     """Provision, gate and reduce `root` in place, updating `state`.
 
@@ -189,6 +223,14 @@ def run_pipeline(root: Path, command: List[str], *,
     # The gate already ran the command; keep what it measured so the state
     # can price the reduction before it starts.
     state.baseline_seconds = verdict.baseline_seconds
+
+    # After the gate, so a project that was never going to be reduced does
+    # not pay for the copy, and before the reducer, which rewrites these
+    # files in place.
+    if originals_dir is not None:
+        originals_dir.mkdir(parents=True, exist_ok=True)
+        snapshot_originals(root, originals_dir)
+
     state.status = "running"
     state.message = "starting reduction"
     touch()

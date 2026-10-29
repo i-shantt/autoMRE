@@ -25,6 +25,7 @@ from .archive import (
     safe_extract,
 )
 from .errors import JobError
+from .manifest import FILE_STATUSES, build_manifest, relative_to_root
 from .pipeline import (
     DEFAULT_QUERY_TIMEOUT,
     PipelineOutcome,
@@ -33,6 +34,7 @@ from .pipeline import (
     prepare_env,
     resolve_command,
     run_pipeline,
+    snapshot_originals,
 )
 from .state import ETA_HIGH, ETA_LOW, JobState, ProgressProjector
 
@@ -40,6 +42,7 @@ __all__ = [
     "DEFAULT_QUERY_TIMEOUT",
     "ETA_HIGH",
     "ETA_LOW",
+    "FILE_STATUSES",
     "MAX_ARCHIVE_BYTES",
     "MAX_FILES",
     "MAX_UNCOMPRESSED_BYTES",
@@ -47,12 +50,15 @@ __all__ = [
     "JobState",
     "PipelineOutcome",
     "ProgressProjector",
+    "build_manifest",
     "check_ready",
     "count_python",
     "package",
     "prepare_env",
     "project_root",
+    "relative_to_root",
     "resolve_command",
     "run_pipeline",
     "safe_extract",
+    "snapshot_originals",
 ]
